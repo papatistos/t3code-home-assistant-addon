@@ -17,7 +17,7 @@ boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:robot-outline
-panel_title: "T3 Code"
+panel_title: "T3 Code (hardened)"
 panel_admin: true
 
 # Only used in "lan" remote mode. Disabled by default.
@@ -72,7 +72,8 @@ schema:
   log_level: "list(trace|debug|info|warn|error)"
 
 map:
-  - type: config
+  - type: homeassistant_config
+    path: /config
     read_only: false
 
 hassio_api: false
