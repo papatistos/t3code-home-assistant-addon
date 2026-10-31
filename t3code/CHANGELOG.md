@@ -1,3 +1,9 @@
+## 0.1.10 (hardened local)
+
+- Preserve the original Supervisor manager permissions and mounts for configuration, add-ons, shared files, and SSL certificates so agents can configure Home Assistant fully.
+- Restore the `ha` CLI at version 5.6.0 with checksum verification for both architectures.
+- Keep ingress access checks, diagnostic removal, locked dependencies, and fail-closed startup behavior.
+
 ## 0.1.9 (hardened local)
 
 - Restrict status management to the Supervisor ingress proxy and reject cross-site mutations.

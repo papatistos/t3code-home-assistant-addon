@@ -17,9 +17,10 @@ Assistant's local add-on folder and install **T3 Code (hardened local)**.
 The patched configuration builds locally and does not pull the original container.
 
 This checkout restricts the management server to the Supervisor ingress proxy,
-removes diagnostic endpoints, and limits mounted folders to `/config`.
-Supervisor management access is disabled. Home Assistant Core API access remains
-available for device control and automation management.
+removes diagnostic endpoints, and preserves the original Home Assistant access.
+Agents can edit `/config`, `/addons`, and `/share`, read `/ssl`, and use the
+Home Assistant Core API and Supervisor manager API to configure the system.
+The `ha` CLI is installed at a pinned version with checksum verification.
 
 The T3 server and provider CLIs use an npm integrity lockfile. The Home Assistant
 MCP server uses architecture-specific Python hash lockfiles. Node, Python, and

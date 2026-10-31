@@ -20,19 +20,20 @@ For x86-64, use `linux/amd64` and `BUILD_ARCH=amd64`.
 docker build --platform linux/arm64 \
   --build-arg BUILD_FROM=ghcr.io/home-assistant/aarch64-base-debian:bookworm@sha256:19c262f6a05c25fe280fa7b54fc9172d6461e90c7714d82a03eb041e83ee6a8e \
   --build-arg BUILD_ARCH=aarch64 \
-  -t t3code-ha-hardened:0.1.9-arm64 t3code
+  -t t3code-ha-hardened:0.1.10-arm64 t3code
 ```
 
 Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
 container before using credentials. Run the HTTP regression tests on Node 22 in
 the container as well.
 
-Run `python3 tests/container-smoke.py t3code-ha-hardened:0.1.9-arm64` to verify
+Run `python3 tests/container-smoke.py t3code-ha-hardened:0.1.10-arm64` to verify
 full startup, real TCP-peer filtering, and the MCP initialization and tool-list
 handshake. The test creates an isolated Docker network, a mock Supervisor, and
 temporary configuration files. The test calls no device tools and uses no real
 provider credentials. Run the x86-64 image test separately because both tests
-use the Supervisor's fixed subnet.
+use the Supervisor's fixed subnet. The test also checks that the `ha` CLI sends
+an authenticated configuration-check request to the mock Supervisor.
 
 ## Update dependency locks
 
@@ -46,8 +47,9 @@ per supported architecture, writing `requirements-aarch64.lock` and
 `requirements-amd64.lock`. Architecture-specific locks preserve dependencies
 selected by platform markers. Run `pip-audit` against each lock.
 
-When updating Cloudflare, update the download version and each architecture's
-expected SHA-256 digest in the Dockerfile from the official GitHub release.
+When updating Cloudflare or the Home Assistant CLI, update the download version
+and each architecture's expected SHA-256 digest in the Dockerfile from the
+official GitHub release.
 Review base-image digest updates in the Dockerfile and `build.yaml` separately.
 Debian security packages remain updateable during builds.
 

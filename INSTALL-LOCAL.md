@@ -30,16 +30,18 @@ The hardened add-on has its own slug and persistent data. It does not reuse
 credentials or settings from the original add-on. Stop the original add-on before
 using the hardened add-on against the same configuration.
 
-The agents retain write access to `/config`, which includes configuration
-secrets, and administrator access through the Home Assistant Core API. The
-agents need those permissions for configuration editing and device control.
+The agents have the original Home Assistant access: write access to `/config`,
+`/addons`, and `/share`, read access to `/ssl`, administrator access through the
+Home Assistant Core API, and Supervisor manager access through the `ha` CLI or
+API. The agents need that access for configuration editing, device control,
+and add-on management. Configuration secrets remain accessible to the agents.
 Keep agent approval prompts enabled and review proposed actions. Protect the T3
 Connect account and treat a LAN pairing link as a password. Do not forward the
 LAN port to the internet. Configuration content sent to an AI provider leaves
 your Home Assistant machine.
 
 Setting `enable_ha_mcp: false` skips MCP registration on a new installation.
-The option does not revoke the add-on's API permission or remove registrations
+The option does not revoke the add-on's API permissions or remove registrations
 from a previous start. Stop the add-on to prevent all agent access.
 
 The strict ingress check means direct requests from an SSH add-on to port 8099
@@ -59,12 +61,15 @@ The ARM64 and x86-64 containers both built successfully. Both containers passed
 six HTTP security regression tests, full startup with a mock Supervisor,
 project and MCP registration, MCP initialization and tool listing, network
 isolation between containers, and rejection of invalid startup configuration.
-The MCP test called no device tools. Dockerfile and shell lint checks passed.
+The MCP test called no device tools. The `ha` CLI also sent an authenticated
+configuration-check request to the mock Supervisor. Dockerfile and shell lint
+checks passed.
 The npm audit and both Python lockfile audits reported no known vulnerabilities
 on 31 October 2026. Audit results do not guarantee the absence of vulnerabilities.
 
 The runtime pins are T3 0.1.6, Claude Code 2.1.316, Codex 0.166.0, OpenCode
-1.19.5, ha-mcp 9.0.0, Node 22.23.4, Python 3.13.18, and cloudflared 2026.5.2.
+1.19.5, ha-mcp 9.0.0, Node 22.23.4, Python 3.13.18, cloudflared 2026.5.2, and
+Home Assistant CLI 5.6.0.
 
 A real Home Assistant installation, provider sign-ins, T3 Connect pairing,
 and authenticated device queries remain to be verified after installation.

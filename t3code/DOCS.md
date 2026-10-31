@@ -41,7 +41,7 @@ Credentials are stored in the add-on's `/data` directory and survive restarts an
 | `anthropic_api_key` | empty | Anthropic API key for Claude Code (API billing). |
 | `openai_api_key` | empty | OpenAI API key for Codex. |
 | `lan_port` | `3773` | Port used in `lan` mode. Also expose it under the add-on's Network section. |
-| `extra_project_dirs` | `[]` | Additional directories to register as T3 Code projects, for example `/config/projects/example`. |
+| `extra_project_dirs` | `[]` | Additional directories to register as T3 Code projects, for example `/addons/my-addon` or `/share/projects`. |
 | `git_init_config` | `false` | Run `git init` in `/config` on start if it is not a repository. T3 Code works best with git projects. |
 | `git_exclude_patterns` | HA data dirs, databases, logs, `custom_components/` | Patterns written to the repo-local `.git/info/exclude` of each project. T3 Code snapshots the whole working tree with `git add -A` before every turn and aborts after 30 seconds, so large untracked data must be excluded. Nothing is committed and your `.gitignore` is untouched. Remove `custom_components/` if you want agents' edits there covered by checkpoints. |
 | `git_auto_exclude_large` | `true` | At start, any untracked top-level directory with 500+ files or 50+ MB is added to the managed excludes automatically (logged as a notice). Turn off if you need such a directory covered by checkpoints. |
@@ -60,12 +60,12 @@ T3 Code app. Treat the pairing URL as a password.
 The add-on ships `ha-mcp` and points each installed provider at it through the launcher
 `/usr/local/bin/ha-mcp-server`, which injects the add-on's Supervisor token at run time. No
 secrets are written into provider config files. The agents can read states, call services,
-inspect history and logs, and manage automations. Supervisor management access is disabled, and the `ha` CLI is not installed.
+inspect history and logs, and manage automations. The `ha` CLI is available for Supervisor commands, including configuration checks and add-on management.
 
 ## Mounted directories
 
-`/config` is the only mounted host directory, with read-write access.
-The add-on does not mount shared files, other add-on files, or SSL certificates.
+The add-on preserves the original mounts: `/config`, `/addons`, and `/share`
+have read-write access, and `/ssl` has read-only access.
 `/config` is registered as the default project.
 
 ## Security notes
@@ -76,8 +76,10 @@ The add-on does not mount shared files, other add-on files, or SSL certificates.
 - The status server accepts only connections from the Supervisor ingress proxy at
   `172.30.32.2`. It does not trust forwarding headers from direct clients.
 - Diagnostic endpoints, including shell execution and Claude prompting, are removed.
-- The Core API permission grants administrator access. Disabling MCP registration
-  does not revoke the Core API permission or prevent agents from reading `/config`.
+- The Core API permission grants administrator access, and the Supervisor manager
+  role allows system configuration and add-on management. Those permissions are
+  intentional so agents can configure Home Assistant. Disabling MCP registration
+  does not revoke the API permissions or prevent agents from reading mounted files.
 - Configuration secrets remain readable to agents. Git exclusions do not restrict
   file access or prevent agents from sending content to an AI provider.
 
