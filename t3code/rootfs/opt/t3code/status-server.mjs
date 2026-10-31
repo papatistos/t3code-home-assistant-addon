@@ -7,6 +7,7 @@
 import http from "node:http";
 import os from "node:os";
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 import { spawn, execFile } from "node:child_process";
 
 const PORT = 8099;
@@ -180,18 +181,35 @@ function lanInfo() {
 
 // ---- HTTP -----------------------------------------------------------------
 
-function readBody(req) {
-  return new Promise((resolve) => {
-    let b = "";
-    req.on("data", (c) => (b += c));
-    req.on("end", () => {
-      try {
-        resolve(b ? JSON.parse(b) : {});
-      } catch {
-        resolve({});
-      }
-    });
-  });
+const MAX_BODY_BYTES = 8192;
+
+class RequestError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
+
+// Check the TCP peer, never a caller-controlled forwarding header.
+export function isIngressRequest(req) {
+  return ["172.30.32.2", "::ffff:172.30.32.2"].includes(req.socket.remoteAddress);
+}
+
+async function readBody(req) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > MAX_BODY_BYTES) throw new RequestError(413, "Request body too large");
+    chunks.push(chunk);
+  }
+  try {
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error();
+    return body;
+  } catch {
+    throw new RequestError(400, "Expected a JSON object");
+  }
 }
 
 function json(res, code, obj) {
@@ -199,189 +217,90 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-const server = http.createServer(async (req, res) => {
-  const ingressPath = req.headers["x-ingress-path"] || "";
-  const url = new URL(req.url, "http://localhost");
-  let path = url.pathname;
-  if (ingressPath && path.startsWith(ingressPath)) path = path.slice(ingressPath.length) || "/";
-
-  if (req.method === "GET" && path === "/api/status") {
-    return json(res, 200, {
-      mode: MODE,
-      connect: await connectStatus(),
-      session: publicSession("t3"),
-      providers: await providerStatus(),
-      lan: MODE === "lan" ? lanInfo() : null,
-    });
-  }
-  const m = path.match(/^\/api\/login\/(t3|claude|codex)\/(start|code)$/);
-  if (req.method === "POST" && m) {
-    const [, name, action] = m;
-    if (action === "start") {
-      const s = startFlow(name);
-      for (let i = 0; i < 80 && !s.url && s.state === "starting"; i++) {
-        await new Promise((r) => setTimeout(r, 250));
+export function createStatusServer({ runCommand = run, isTrustedRequest = isIngressRequest } = {}) {
+  const server = http.createServer(async (req, res) => {
+    if (!isTrustedRequest(req)) return json(res, 403, { error: "Ingress connections only" });
+    if (req.method === "POST") {
+      if (req.headers["sec-fetch-site"] === "cross-site") return json(res, 403, { error: "Cross-site request denied" });
+      if (req.headers["content-type"]?.split(";")[0].trim().toLowerCase() !== "application/json") {
+        return json(res, 415, { error: "Content-Type must be application/json" });
       }
-      return json(res, 200, publicSession(name));
     }
-    const body = await readBody(req);
-    if (!body.code) return json(res, 400, { ok: false, error: "Missing code" });
-    return json(res, 200, submitCode(name, String(body.code)));
-  }
-  if (req.method === "POST" && path === "/api/unlink") {
-    const r = await run("t3", ["connect", "unlink"]);
-    return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
-  }
-  if (req.method === "POST" && path === "/api/logout") {
-    const r = await run("t3", ["connect", "logout"]);
-    delete sessions.t3;
-    return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
-  }
-  if (req.method === "POST" && path === "/api/provider/claude/logout") {
-    const r = await run("claude", ["auth", "logout"]);
-    delete sessions.claude;
-    return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
-  }
-  if (req.method === "POST" && path === "/api/provider/codex/logout") {
-    const r = await run("codex", ["logout"]);
-    delete sessions.codex;
-    return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
-  }
-  if (req.method === "POST" && path === "/api/restart") {
-    return json(res, 200, restartServer());
-  }
-  // Read-only diagnostics for troubleshooting (only reachable via ingress / add-on network).
-  if (req.method === "GET" && path === "/api/diag") {
-    const [t3v, claudeV, codexV, node, ha] = await Promise.all([
-      run("t3", ["--version"]), run("claude", ["--version"]), run("codex", ["--version"]),
-      run("node", ["--version"]), run("ha", ["core", "info", "--raw-json"], 15000),
-    ]);
-    const home = process.env.HOME || "";
-    const ls = (p) => { try { return fs.readdirSync(p); } catch (e) { return String(e.message); } };
-    return json(res, 200, {
-      versions: { t3: t3v.stdout.trim(), claude: (claudeV.stdout + claudeV.stderr).trim(), codex: (codexV.stdout + codexV.stderr).trim(), node: node.stdout.trim() },
-      haCoreInfo: ha.stdout.slice(0, 400),
-      env: Object.fromEntries(Object.entries(process.env).filter(([k]) => /^(T3CODE_|HOME$|CLAUDE_|ANTHROPIC_|OPENAI_)/.test(k)).map(([k, v]) => [k, /TOKEN|KEY/.test(k) ? "(set)" : v])),
-      files: { home: ls(home), claudeDir: ls(home + "/.claude"), t3Home: ls(process.env.T3CODE_HOME || "") },
-    });
-  }
-  if (req.method === "GET" && path === "/api/diag/git") {
-    const t0 = Date.now();
-    const status = await run("git", ["-C", "/config", "status", "--porcelain", "--untracked-files=all"], 120000);
-    const t1 = Date.now();
-    const lines = status.stdout.split("\n").filter(Boolean);
-    const untracked = lines.filter((l) => l.startsWith("??"));
-    const byTop = {};
-    for (const l of untracked) {
-      const top = l.slice(3).split("/")[0];
-      byTop[top] = (byTop[top] || 0) + 1;
-    }
-    const top = Object.entries(byTop).sort((a, b) => b[1] - a[1]).slice(0, 15);
-    let exclude = "";
-    try { exclude = fs.readFileSync("/config/.git/info/exclude", "utf8"); } catch {}
-    return json(res, 200, {
-      isRepo: status.ok, statusMs: t1 - t0, changed: lines.length - untracked.length, untracked: untracked.length,
-      untrackedByTopDir: top, exclude, error: status.ok ? null : status.stderr.trim(),
-    });
-  }
-  if (req.method === "GET" && path === "/api/diag/logs") {
-    // List t3's own log files, or tail one: ?file=<relative path>&bytes=<n>&grep=<regex>
-    const pathMod = await import("node:path");
-    const logsDir = pathMod.join(process.env.T3CODE_HOME || "/data/t3code", "userdata", "logs");
-    const file = url.searchParams.get("file");
-    if (!file) {
-      const out = [];
-      const walk = (dir, rel) => {
-        let entries = [];
-        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-        for (const e of entries) {
-          const p = pathMod.join(dir, e.name);
-          const r = rel ? rel + "/" + e.name : e.name;
-          if (e.isDirectory()) walk(p, r);
-          else { const st = fs.statSync(p); out.push({ file: r, size: st.size, mtime: st.mtime.toISOString() }); }
-        }
-      };
-      walk(logsDir, "");
-      out.sort((a, b) => (a.mtime < b.mtime ? 1 : -1));
-      return json(res, 200, { logsDir, files: out.slice(0, 200) });
-    }
-    const target = pathMod.resolve(logsDir, file);
-    if (!target.startsWith(logsDir + pathMod.sep) && target !== logsDir) return json(res, 400, { error: "path outside logs dir" });
-    let text = "";
     try {
-      const bytes = Math.min(Number(url.searchParams.get("bytes") || 200000), 2000000);
-      const st = fs.statSync(target);
-      const fd = fs.openSync(target, "r");
-      const start = Math.max(0, st.size - bytes);
-      const buf = Buffer.alloc(st.size - start);
-      fs.readSync(fd, buf, 0, buf.length, start);
-      fs.closeSync(fd);
-      text = buf.toString("utf8");
-    } catch (e) {
-      return json(res, 404, { error: String(e.message) });
-    }
-    const grep = url.searchParams.get("grep");
-    if (grep) {
-      const re = new RegExp(grep, "i");
-      text = text.split("\n").filter((l) => re.test(l)).join("\n");
-    }
-    res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-    return res.end(text);
-  }
-  if (req.method === "POST" && path === "/api/diag/exec") {
-    // Development-only shell access. Enabled by the `debug_shell` option; runs as the
-    // add-on user inside the container. Reachable only via ingress / the add-on network.
-    if (process.env.T3CODE_DEBUG_SHELL !== "true") return json(res, 403, { error: "debug_shell option is off" });
-    const body = await readBody(req);
-    if (!body.cmd) return json(res, 400, { error: "Missing cmd" });
-    const r = await new Promise((resolve) => {
-      execFile("bash", ["-lc", String(body.cmd)], { env: process.env, cwd: body.cwd || "/config", timeout: Number(body.timeoutMs) || 120000, maxBuffer: 8 << 20 }, (err, stdout, stderr) =>
-        resolve({ ok: !err, code: err ? err.code : 0, signal: err ? err.signal : null, stdout: (stdout || "").slice(-60000), stderr: (stderr || "").slice(-20000) }));
-    });
-    return json(res, 200, r);
-  }
-  if (req.method === "POST" && path === "/api/diag/checkpoint") {
-    // Reproduce t3's checkpoint sequence with a temporary index and time each step.
-    const cwd = "/config";
-    const idx = `/tmp/t3-diag-index-${process.pid}`;
-    const env = { ...process.env, GIT_INDEX_FILE: idx };
-    const step = async (args) => {
-      const t = Date.now();
-      const r = await new Promise((resolve) => execFile("git", args, { cwd, env, timeout: 180000, maxBuffer: 8 << 20 }, (err, stdout, stderr) =>
-        resolve({ ok: !err, ms: Date.now() - t, out: (stdout || "").trim().slice(0, 300), err: (stderr || "").trim().slice(0, 500) })));
-      return r;
-    };
-    try { fs.rmSync(idx, { force: true }); } catch {}
-    const result = {
-      readTree: await step(["read-tree", "HEAD"]),
-      add: await step(["add", "-A", "--", "."]),
-      writeTree: await step(["write-tree"]),
-      countObjects: await step(["count-objects", "-vH"]),
-    };
-    try { fs.rmSync(idx, { force: true }); } catch {}
-    const cfg = await run("git", ["-C", cwd, "config", "--list", "--show-origin"]);
-    result.gitConfig = cfg.stdout.split("\n").filter((l) => /fsmonitor|untracked|safe|core\.|index\./i.test(l)).slice(0, 40);
-    return json(res, 200, result);
-  }
-  if (req.method === "POST" && path === "/api/diag/claude") {
-    const body = await readBody(req);
-    const prompt = String(body.prompt || "Reply with the single word OK.");
-    const r = await new Promise((resolve) => {
-      execFile("claude", ["-p", prompt, "--output-format", "text"], { env: process.env, cwd: "/config", timeout: 120000 }, (err, stdout, stderr) => {
-        resolve({ ok: !err, code: err ? err.code : 0, signal: err ? err.signal : null, stdout: (stdout || "").slice(-4000), stderr: (stderr || "").slice(-4000) });
-      });
-    });
-    return json(res, 200, r);
-  }
-  if (req.method === "GET" && (path === "/" || path === "")) {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    return res.end(PAGE.replace("__BASE__", ingressPath));
-  }
-  res.writeHead(404);
-  res.end("not found");
-});
+      const ingressPath = req.headers["x-ingress-path"] || "";
+      if (ingressPath && !/^\/api\/hassio_ingress\/[A-Za-z0-9_-]+\/?$/.test(ingressPath)) {
+        return json(res, 400, { error: "Invalid ingress path" });
+      }
+      const url = new URL(req.url, "http://localhost");
+      let path = url.pathname;
+      if (ingressPath && path.startsWith(ingressPath)) path = path.slice(ingressPath.length) || "/";
 
-server.listen(PORT, "0.0.0.0", () => console.log(`[status] listening on ${PORT} (mode=${MODE})`));
+      if (req.method === "GET" && path === "/api/status") {
+        return json(res, 200, {
+          mode: MODE,
+          connect: await connectStatus(),
+          session: publicSession("t3"),
+          providers: await providerStatus(),
+          lan: MODE === "lan" ? lanInfo() : null,
+        });
+      }
+      const m = path.match(/^\/api\/login\/(t3|claude|codex)\/(start|code)$/);
+      if (req.method === "POST" && m) {
+        const [, name, action] = m;
+        if (action === "start") {
+          const s = startFlow(name);
+          for (let i = 0; i < 80 && !s.url && s.state === "starting"; i++) {
+            await new Promise((r) => setTimeout(r, 250));
+          }
+          return json(res, 200, publicSession(name));
+        }
+        const body = await readBody(req);
+        if (typeof body.code !== "string" || !body.code.trim() || body.code.length > 4096 || /[\x00-\x1f\x7f]/.test(body.code)) {
+          return json(res, 400, { ok: false, error: "Expected a single-line authorization code" });
+        }
+        return json(res, 200, submitCode(name, String(body.code)));
+      }
+      if (req.method === "POST" && path === "/api/unlink") {
+        const r = await runCommand("t3", ["connect", "unlink"]);
+        return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
+      }
+      if (req.method === "POST" && path === "/api/logout") {
+        const r = await runCommand("t3", ["connect", "logout"]);
+        delete sessions.t3;
+        return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
+      }
+      if (req.method === "POST" && path === "/api/provider/claude/logout") {
+        const r = await runCommand("claude", ["auth", "logout"]);
+        delete sessions.claude;
+        return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
+      }
+      if (req.method === "POST" && path === "/api/provider/codex/logout") {
+        const r = await runCommand("codex", ["logout"]);
+        delete sessions.codex;
+        return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
+      }
+      if (req.method === "POST" && path === "/api/restart") {
+        return json(res, 200, restartServer());
+      }
+      if (req.method === "GET" && (path === "/" || path === "")) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        return res.end(PAGE.replace("__BASE__", ingressPath));
+      }
+      res.writeHead(404);
+      res.end("not found");
+    } catch (err) {
+      if (!res.headersSent) json(res, err.statusCode || 500, { error: err.statusCode ? err.message : "Request failed" });
+      else res.end();
+    }
+  });
+  server.requestTimeout = 30000;
+  server.headersTimeout = 10000;
+  return server;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  createStatusServer().listen(PORT, "0.0.0.0", () => console.log(`[status] listening on ${PORT} (mode=${MODE})`));
+}
 
 const PAGE = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

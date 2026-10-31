@@ -57,7 +57,6 @@ options:
   git_auto_exclude_large: true
   enable_ha_mcp: true
   log_level: "info"
-  debug_shell: false
 schema:
   remote_mode: "list(t3_connect|lan)"
   claude_code_oauth_token: "password?"
@@ -72,7 +71,6 @@ schema:
   git_auto_exclude_large: bool
   enable_ha_mcp: bool
   log_level: "list(trace|debug|info|warn|error)"
-  debug_shell: bool?
 
 map:
   - type: config

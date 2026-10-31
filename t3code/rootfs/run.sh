@@ -29,12 +29,6 @@ if bashio::config.has_value openai_api_key; then
     export OPENAI_API_KEY
 fi
 
-T3CODE_DEBUG_SHELL=$(bashio::config 'debug_shell' 'false')
-export T3CODE_DEBUG_SHELL
-if [ "${T3CODE_DEBUG_SHELL}" = "true" ]; then
-    bashio::log.warning "debug_shell is ON: the status server exposes /api/diag/exec. Turn it off when done."
-fi
-
 export T3CODE_REMOTE_MODE="${REMOTE_MODE}"
 export T3CODE_LAN_PORT="${LAN_PORT}"
 
