@@ -54,6 +54,18 @@ RUN python3 -m venv /opt/ha-mcp \
     && /opt/ha-mcp/bin/pip install --no-cache-dir --require-hashes -r /opt/ha-mcp-requirements.lock \
     && ln -s /opt/ha-mcp/bin/ha-mcp /usr/local/bin/ha-mcp
 
+ARG HA_CLI_VERSION=5.6.0
+# Keep Supervisor configuration workflows available, with a verified CLI binary.
+RUN case "${BUILD_ARCH}" in \
+        amd64) HA_SHA256="9d259c700bfcd45b6a793709e1fcfd304a595624dda10cfa5edde66f0b8a9656" ;; \
+        aarch64) HA_SHA256="4ecdbd67002defbf96e4668e62f631e9767b92d18e1ce54bfee6ddd040c20e73" ;; \
+        *) echo "Unsupported BUILD_ARCH: ${BUILD_ARCH}" && exit 1 ;; \
+    esac \
+    && curl -fsSL -o /usr/local/bin/ha \
+        "https://github.com/home-assistant/cli/releases/download/${HA_CLI_VERSION}/ha_${BUILD_ARCH}" \
+    && echo "${HA_SHA256}  /usr/local/bin/ha" | sha256sum -c - \
+    && chmod +x /usr/local/bin/ha
+
 COPY rootfs/ /
 RUN chmod +x /run.sh /opt/t3code/*.sh /usr/local/bin/ha-mcp-server
 

@@ -1,7 +1,7 @@
 ---
 name: "T3 Code (hardened local)"
 description: "Headless T3 Code server for remote-controlled AI coding agents (Claude Code, Codex, OpenCode) with Home Assistant MCP"
-version: "0.1.9"
+version: "0.1.10"
 slug: "t3code_hardened"
 url: "https://github.com/oded996/t3code-home-assistant-addon"
 init: false
@@ -75,9 +75,15 @@ map:
   - type: homeassistant_config
     path: /config
     read_only: false
+  - type: addons
+    read_only: false
+  - type: share
+    read_only: false
+  - type: ssl
+    read_only: true
 
-hassio_api: false
-hassio_role: default
+hassio_api: true
+hassio_role: manager
 homeassistant_api: true
 
 backup_exclude:

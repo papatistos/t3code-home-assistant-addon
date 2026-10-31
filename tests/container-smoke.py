@@ -76,6 +76,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
         self.send_header("Content-Type","application/json")
         self.end_headers(); self.wfile.write(body)
+    def do_POST(self):
+        if self.path != "/core/check" or self.headers.get("Authorization") != "Bearer local-test-token-not-a-credential":
+            self.send_response(403); self.end_headers(); return
+        self.send_response(200)
+        self.send_header("Content-Type","application/json")
+        self.end_headers(); self.wfile.write(b'{"result":"ok","data":{}}')
 HTTPServer(("0.0.0.0",80),Handler).serve_forever()
 '''
 
@@ -100,6 +106,9 @@ with tempfile.TemporaryDirectory(prefix="t3ha-smoke-") as temporary:
         docker("run", "--rm", "--network", network, "--ip", "172.30.32.3",
                "--entrypoint", "python3", image, "-c", probe, "denied")
         docker("exec", "-i", name, "python3", "-", input=(repo / "tests/mcp-smoke.py").read_text())
+        docker("exec", name, "ha", "--version")
+        docker("exec", name, "ha", "core", "check")
+        print("PASS: ha CLI sends an authenticated configuration-check request to the mock Supervisor")
         output = docker("logs", name, capture_output=True)
         logs = output.stdout + output.stderr
         print(logs)
