@@ -8,7 +8,9 @@ loopback ports and use fake CLI responses. They do not call an AI provider.
 The tests verify the TCP-peer allowlist, rejection of spoofed forwarding headers,
 removal of all diagnostics, ingress management routing, cross-site and content-type
 checks, authorization-code validation, request size limits, and safe ingress-path
-rendering.
+rendering. The device-login tests use a fictional code in the pinned Codex CLI's
+multiline prompt format. They verify code extraction across output chunks,
+browser instructions without a paste-back field, and automatic completion.
 
 ## Build each architecture
 
@@ -24,17 +26,17 @@ must still select Debian and complete successfully:
 docker buildx build t3code \
   --file t3code/Dockerfile \
   --platform linux/amd64 --pull \
-  --build-arg BUILD_VERSION=0.1.12 \
+  --build-arg BUILD_VERSION=0.1.13 \
   --build-arg BUILD_ARCH=amd64 \
   --build-arg BUILD_FROM=ghcr.io/home-assistant/base:latest \
-  -t t3code-ha:0.1.12-amd64
+  -t t3code-ha:0.1.13-amd64
 ```
 
 Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
 container before using credentials. Run the HTTP regression tests on Node 22 in
 the container as well.
 
-Run `python3 tests/container-smoke.py t3code-ha:0.1.12-amd64` to verify
+Run `python3 tests/container-smoke.py t3code-ha:0.1.13-amd64` to verify
 full startup, real TCP-peer filtering, and the MCP initialization and tool-list
 handshake. The test creates an isolated Docker network, a mock Supervisor, and
 temporary configuration files. The test calls no device tools and uses no real

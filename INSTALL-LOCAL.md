@@ -59,7 +59,7 @@ and the [ingress security boundary](https://contributors.home-assistant.io/apps/
 ## Verification of this local version
 
 The ARM64 and x86-64 containers both built successfully. Both containers passed
-six HTTP security regression tests, full startup with a mock Supervisor,
+nine HTTP and device-login regression tests, full startup with a mock Supervisor,
 project and MCP registration, MCP initialization and tool listing, network
 isolation between containers, and rejection of invalid startup configuration.
 The MCP test called no device tools. The `ha` CLI also sent an authenticated

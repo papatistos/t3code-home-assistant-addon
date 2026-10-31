@@ -23,8 +23,10 @@ Provider logins are per machine, so signing in on your laptop does not sign in t
 You have three options:
 
 1. **Status page.** The T3 Code panel has a Providers section with a Sign in button for
-   Claude Code and Codex. It shows a login link to open on any device; if the browser
-   returns a code, paste it back into the page.
+   Claude Code and Codex. For Codex, open the OpenAI sign-in link and enter the
+   device code displayed in the panel. Codex then completes sign-in automatically;
+   no code needs to be pasted back into the panel. For Claude Code, open its login
+   link and paste the authorization code back into the panel if the browser asks.
 2. **Add-on options.** Set `claude_code_oauth_token` (from `claude setup-token` on a machine
    with a browser), `anthropic_api_key`, or `openai_api_key` in the add-on configuration and
    restart. These are passed to the CLIs as environment variables.
