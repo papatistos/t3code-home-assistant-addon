@@ -9,7 +9,6 @@ FROM ghcr.io/home-assistant/aarch64-base-debian:bookworm@sha256:19c262f6a05c25fe
 FROM ha-base-${BUILD_ARCH}
 
 ARG BUILD_ARCH
-ARG CLOUDFLARED_VERSION=2026.5.2
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -39,11 +38,12 @@ RUN npm ci --loglevel=info --prefix /opt/t3code-runtime --omit=dev --no-fund --n
     && npm cache clean --force \
     && t3 --version
 
+ARG CLOUDFLARED_VERSION=2026.10.7
 # cloudflared: the T3 Connect relay client. Preinstalled so the add-on
 # never has to download it at runtime (T3CODE_CLOUDFLARED_PATH points here).
 RUN case "${BUILD_ARCH}" in \
-        amd64)   CF_ARCH="amd64"; CF_SHA256="5286698547f03df745adb2355f04c12dde52ef425491e81f433642d695521886" ;; \
-        aarch64) CF_ARCH="arm64"; CF_SHA256="5a4e8ce2701105271412059f44b6a0bf1ae4542b4d98ff3180c0c019443a5815" ;; \
+        amd64)   CF_ARCH="amd64"; CF_SHA256="1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872" ;; \
+        aarch64) CF_ARCH="arm64"; CF_SHA256="3df43aedc9ff291d1735b5cb576cb97e0b157488796db2e32b28aecabb445775" ;; \
         *) echo "Unsupported BUILD_ARCH: ${BUILD_ARCH}" && exit 1 ;; \
     esac \
     && curl -fsSL -o /usr/local/bin/cloudflared \

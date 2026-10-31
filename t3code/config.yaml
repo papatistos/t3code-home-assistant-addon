@@ -1,7 +1,7 @@
 ---
 name: "T3 Code"
 description: "Headless T3 Code server for remote-controlled AI coding agents (Claude Code, Codex, OpenCode) with Home Assistant MCP"
-version: "0.1.11"
+version: "0.1.12"
 slug: "t3code"
 url: "https://github.com/papatistos/t3code-home-assistant-addon"
 init: false

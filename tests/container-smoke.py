@@ -49,11 +49,15 @@ code,raw=request("/api/status")
 assert code==200,(code,raw)
 status=json.loads(raw)
 assert not status["connect"].get("error"),status
+relay=status["connect"].get("relayClient",{})
+assert relay.get("status")=="available",relay
+assert relay.get("version"),relay
 assert status["providers"]["claude"]["installed"],status
 assert status["providers"]["codex"]["installed"],status
 assert not status["providers"]["claude"]["signedIn"],status
 assert not status["providers"]["codex"]["signedIn"],status
 print("PASS: simulated Supervisor can render the panel and obtain real CLI status; diagnostics are absent")
+print("PASS: T3 recognizes the available cloudflared relay client at version " + relay["version"])
 '''
 
 options = {

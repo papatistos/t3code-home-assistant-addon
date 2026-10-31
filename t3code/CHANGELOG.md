@@ -1,3 +1,7 @@
+## 0.1.12
+
+- Update the cloudflared relay client from 2026.5.2 to 2026.10.7 with verified SHA-256 checksums for amd64 and ARM64.
+
 ## 0.1.11
 
 - Select the architecture-specific Debian base directly in the Dockerfile so Supervisor's Alpine BUILD_FROM default cannot break installation.
