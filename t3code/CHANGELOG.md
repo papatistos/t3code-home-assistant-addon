@@ -1,3 +1,14 @@
+## 0.1.9 (hardened local)
+
+- Restrict status management to the Supervisor ingress proxy and reject cross-site mutations.
+- Remove all diagnostic endpoints and the debug shell option.
+- Validate and limit authorization-code requests.
+- Remove Supervisor management access and mounts for add-ons, shared files, and SSL certificates.
+- Build patched source locally under the `t3code_hardened` slug.
+- Upgrade T3 and ha-mcp to address dependency advisories and lock package integrity hashes.
+- Pin runtime images by digest and verify the Cloudflare executable checksum.
+- Add HTTP security regression tests and local installation instructions.
+
 ## 0.1.8
 
 - Development option `debug_shell` exposing POST /api/diag/exec (off by default).

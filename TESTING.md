@@ -1,100 +1,65 @@
-# Testing the add-on against the real Home Assistant
+# Verify the hardened add-on
 
-This guide is written for an agent (or a human) verifying the add-on on Oded's home
-Home Assistant instance. Everything here is reachable from the development machine on the
-home LAN.
+## HTTP security regression tests
 
-## Environment
+Run `node --test tests/*.test.mjs` with Node 22 or later. The tests open temporary
+loopback ports and use fake CLI responses. They do not call an AI provider.
 
-| Item | Value |
-| --- | --- |
-| Home Assistant URL | `http://homeassistant.local:8123/` (HA OS 18.x, Core 2026.9, amd64) |
-| SSH | `root@homeassistant.local`, password in `tools/ha.env` (gitignored) |
-| Add-on slug | `f32addfd_t3code` (container name `addon_f32addfd_t3code`, hostname `f32addfd-t3code`, IP on the add-on network) |
-| Add-on repo | `https://github.com/oded996/t3code-home-assistant-addon` |
-| Images | `ghcr.io/oded996/t3code-{amd64,aarch64}` built by GitHub Actions on push to `main` |
-| T3 Code app | `https://app.t3.codes/` (the HA environment appears under T3 Connect once linked) |
+The tests verify the TCP-peer allowlist, rejection of spoofed forwarding headers,
+removal of all diagnostics, ingress management routing, cross-site and content-type
+checks, authorization-code validation, request size limits, and safe ingress-path
+rendering.
 
-## SSH helper
+## Build each architecture
 
-`ssh` on Windows cannot take a password non-interactively, so use the Node helper:
+Use `t3code/build.yaml` for the digest-pinned base image matching `BUILD_ARCH`.
+For ARM64, set the Docker platform to `linux/arm64` and `BUILD_ARCH=aarch64`.
+For x86-64, use `linux/amd64` and `BUILD_ARCH=amd64`.
 
-```bash
-node tools/ha-ssh.mjs "ha info"
-node tools/ha-ssh.mjs "ha apps logs f32addfd_t3code"          # add-on log (may need 'ha addons' on older CLIs)
-node tools/ha-ssh.mjs "ha apps info f32addfd_t3code"
-node tools/ha-ssh.mjs "ha apps restart f32addfd_t3code"
-node tools/ha-ssh.mjs "ha store reload && ha apps update f32addfd_t3code"   # after a new version is published
-node tools/ha-ssh.mjs "ha core logs | tail -100"
+```sh
+docker build --platform linux/arm64 \
+  --build-arg BUILD_FROM=ghcr.io/home-assistant/aarch64-base-debian:bookworm@sha256:19c262f6a05c25fe280fa7b54fc9172d6461e90c7714d82a03eb041e83ee6a8e \
+  --build-arg BUILD_ARCH=aarch64 \
+  -t t3code-ha-hardened:0.1.9-arm64 t3code
 ```
 
-The SSH add-on runs in protection mode, so `docker exec` is NOT available. To look inside the
-add-on container use the status server's read-only diagnostics, reachable over the add-on
-network from the SSH session:
+Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
+container before using credentials. Run the HTTP regression tests on Node 22 in
+the container as well.
 
-```bash
-node tools/ha-ssh.mjs "curl -s http://f32addfd-t3code:8099/api/status"        # T3 Connect + provider login state
-node tools/ha-ssh.mjs "curl -s http://f32addfd-t3code:8099/api/diag"          # versions, env, files
-node tools/ha-ssh.mjs "curl -s -X POST http://f32addfd-t3code:8099/api/diag/claude"   # runs 'claude -p' inside the container (up to 2 min)
-node tools/ha-ssh.mjs "curl -s http://f32addfd-t3code:8099/api/diag/git"      # git status timing, untracked counts, active excludes
-```
+Run `python3 tests/container-smoke.py t3code-ha-hardened:0.1.9-arm64` to verify
+full startup, real TCP-peer filtering, and the MCP initialization and tool-list
+handshake. The test creates an isolated Docker network, a mock Supervisor, and
+temporary configuration files. The test calls no device tools and uses no real
+provider credentials. Run the x86-64 image test separately because both tests
+use the Supervisor's fixed subnet.
 
-Known constraint: t3 snapshots the project with `git add -A` before every turn and gives up
-after 30 seconds. If `/api/diag/git` reports tens of thousands of untracked files, turns
-fail with "Claude runtime stream failed"; the `git_exclude_patterns` option must cover them.
+## Update dependency locks
 
-Strip ANSI colour codes from log output with `sed 's/\x1b\[[0-9;]*m//g'`.
+Update direct npm versions deliberately in `t3code/package.json`, then run
+`npm install --package-lock-only --ignore-scripts` in `t3code` and review the diff.
+Run `npm audit --omit=dev` against the resulting lockfile.
 
-## Browser
+Generate Python locks on Linux with Python 3.13, pip 25.3, and pip-tools 7.5.2.
+Run `pip-compile --generate-hashes --strip-extras` against `requirements.in` once
+per supported architecture, writing `requirements-aarch64.lock` and
+`requirements-amd64.lock`. Architecture-specific locks preserve dependencies
+selected by platform markers. Run `pip-audit` against each lock.
 
-Use the T3 Code preview tools (`mcp__t3-code__preview_*`). Two tabs are normally open and
-already logged in:
+When updating Cloudflare, update the download version and each architecture's
+expected SHA-256 digest in the Dockerfile from the official GitHub release.
+Review base-image digest updates in the Dockerfile and `build.yaml` separately.
+Debian security packages remain updateable during builds.
 
-- `tab_1`: Home Assistant. The add-on panel is in the sidebar as "T3 Code" (ingress).
-- `tab_2`: `https://app.t3.codes/` (the remote T3 Code UI).
+## Verify in Home Assistant
 
-Tips:
+After installing from [INSTALL-LOCAL.md](INSTALL-LOCAL.md), confirm that the
+add-on starts, registers `/config`, and configures MCP for installed providers.
+Open the sidebar panel to sign in. Direct requests from another add-on to port
+8099 must return HTTP 403, including requests with spoofed ingress headers.
 
-- `preview_snapshot` returns a very large accessibility tree. Prefer `includeImage=false`
-  and, for specific values, `preview_evaluate` with an expression such as
-  `document.body.innerText.slice(0, 3000)`.
-- If a tab shows a login form, stop and ask Oded to log in; never try credentials.
-- The HA add-on panel URL is `http://homeassistant.local:8123/hassio/ingress/f32addfd_t3code`.
-
-## Publishing a new version
-
-1. Bump `version` in `t3code/config.yaml` and add a `CHANGELOG.md` entry.
-2. Commit and push to `main`. The "Build add-on" workflow builds both arches (about 10 minutes).
-   Check with `gh run list --repo oded996/t3code-home-assistant-addon --limit 3`.
-3. On the HA box: `node tools/ha-ssh.mjs "ha store reload && ha apps update f32addfd_t3code"`,
-   then confirm with `ha apps info f32addfd_t3code | grep version` and read the log. The
-   update takes a minute or two; the add-on restarts automatically. This step is safe to
-   delegate to a sub-agent.
-
-## Verification checklist
-
-Run these in order and report each as pass/fail with the evidence (log lines, API output,
-or what the page shows).
-
-1. **Add-on starts.** Log contains "T3 Code server is ready" and no ERROR lines before it.
-   All six "found <cli>" lines are present.
-2. **Project registration.** Log shows "Registered project: /config" or "Project already
-   registered: /config".
-3. **MCP setup.** Log shows "ha-mcp configured for Claude Code" (and Codex / OpenCode).
-4. **T3 Connect.** `/api/status` shows `authenticated`, `desired`, and `linked` all true, and
-   the log shows "Relay client tunnel connection registered".
-5. **Status page renders.** Open the T3 Code panel in `tab_1`; it shows the T3 Connect card
-   with three "yes" rows and the Providers card.
-6. **Claude works inside the container.** `POST /api/diag/claude` returns `ok: true` and a
-   short answer in `stdout`. If it fails, `stderr` has the real error.
-7. **Remote thread.** In `tab_2`, pick the Home Assistant environment, start a new thread in
-   the "Home Assistant Config" project, send "List the files in the current directory", and
-   confirm a reply arrives without red error banners.
-8. **MCP from the agent.** In the same thread ask "Use the home-assistant MCP tools to list
-   three entities". Confirm the tool call appears and returns entities.
-
-## Reporting
-
-Report findings as a short list: what passed, what failed with the exact error text, and the
-most likely cause with the file in this repo that would need to change. Do not modify the
-add-on or push anything unless explicitly asked.
+Confirm T3 Connect pairing or LAN pairing, provider sign-in, and a read-only
+agent task. With MCP enabled, verify a read-only entity query before allowing
+configuration edits or service calls. Device actions, provider authentication,
+and real Home Assistant API requests require a live installation and are not
+established by local container tests.
