@@ -12,22 +12,29 @@ rendering.
 
 ## Build each architecture
 
-Use `t3code/build.yaml` for the digest-pinned base image matching `BUILD_ARCH`.
+The Dockerfile selects a digest-pinned Debian base for `BUILD_ARCH`. It does not
+use Supervisor's `BUILD_FROM` override or the deprecated `build.yaml` file.
 For ARM64, set the Docker platform to `linux/arm64` and `BUILD_ARCH=aarch64`.
 For x86-64, use `linux/amd64` and `BUILD_ARCH=amd64`.
 
+Use Supervisor's default Alpine argument deliberately when testing. The build
+must still select Debian and complete successfully:
+
 ```sh
-docker build --platform linux/arm64 \
-  --build-arg BUILD_FROM=ghcr.io/home-assistant/aarch64-base-debian:bookworm@sha256:19c262f6a05c25fe280fa7b54fc9172d6461e90c7714d82a03eb041e83ee6a8e \
-  --build-arg BUILD_ARCH=aarch64 \
-  -t t3code-ha:0.1.10-arm64 t3code
+docker buildx build t3code \
+  --file t3code/Dockerfile \
+  --platform linux/amd64 --pull \
+  --build-arg BUILD_VERSION=0.1.11 \
+  --build-arg BUILD_ARCH=amd64 \
+  --build-arg BUILD_FROM=ghcr.io/home-assistant/base:latest \
+  -t t3code-ha:0.1.11-amd64
 ```
 
 Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
 container before using credentials. Run the HTTP regression tests on Node 22 in
 the container as well.
 
-Run `python3 tests/container-smoke.py t3code-ha:0.1.10-arm64` to verify
+Run `python3 tests/container-smoke.py t3code-ha:0.1.11-amd64` to verify
 full startup, real TCP-peer filtering, and the MCP initialization and tool-list
 handshake. The test creates an isolated Docker network, a mock Supervisor, and
 temporary configuration files. The test calls no device tools and uses no real
@@ -50,7 +57,7 @@ selected by platform markers. Run `pip-audit` against each lock.
 When updating Cloudflare or the Home Assistant CLI, update the download version
 and each architecture's expected SHA-256 digest in the Dockerfile from the
 official GitHub release.
-Review base-image digest updates in the Dockerfile and `build.yaml` separately.
+Review base-image digest updates in the Dockerfile.
 Debian security packages remain updateable during builds.
 
 ## Verify in Home Assistant

@@ -50,10 +50,9 @@ See [t3code/DOCS.md](t3code/DOCS.md) for configuration and
 
 ## Development
 
-Home Assistant builds the add-on from the repository source. To test a build with
-the official Home Assistant builder:
+Home Assistant builds the add-on from the repository source. The Dockerfile
+selects its Debian base directly for each architecture, even when Supervisor
+passes its default Alpine `BUILD_FROM` argument. Build settings do not depend
+on `build.yaml`.
 
-```bash
-docker run --rm --privileged -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$PWD":/data ghcr.io/home-assistant/amd64-builder --test --amd64 --target t3code
-```
+See [TESTING.md](TESTING.md) for Supervisor-style builds and container checks.
