@@ -9,5 +9,5 @@ if ! git -C "$repo" diff --quiet HEAD -- t3code; then
     echo "Commit the add-on changes before packaging." >&2
     exit 1
 fi
-git -C "$repo" archive --format=tar --prefix=t3code_hardened/ HEAD:t3code | gzip -n > "$output"
+git -C "$repo" archive --format=tar --prefix=t3code/ HEAD:t3code | gzip -n > "$output"
 shasum -a 256 "$output"

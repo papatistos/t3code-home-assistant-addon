@@ -1,9 +1,9 @@
 ---
-name: "T3 Code (hardened local)"
+name: "T3 Code"
 description: "Headless T3 Code server for remote-controlled AI coding agents (Claude Code, Codex, OpenCode) with Home Assistant MCP"
 version: "0.1.10"
-slug: "t3code_hardened"
-url: "https://github.com/oded996/t3code-home-assistant-addon"
+slug: "t3code"
+url: "https://github.com/papatistos/t3code-home-assistant-addon"
 init: false
 
 arch:
@@ -17,7 +17,7 @@ boot: auto
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:robot-outline
-panel_title: "T3 Code (hardened)"
+panel_title: "T3 Code"
 panel_admin: true
 
 # Only used in "lan" remote mode. Disabled by default.
