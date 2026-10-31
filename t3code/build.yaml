@@ -1,11 +1,9 @@
 ---
 build_from:
-  aarch64: ghcr.io/home-assistant/aarch64-base-debian:bookworm
-  amd64: ghcr.io/home-assistant/amd64-base-debian:bookworm
+  aarch64: ghcr.io/home-assistant/aarch64-base-debian:bookworm@sha256:19c262f6a05c25fe280fa7b54fc9172d6461e90c7714d82a03eb041e83ee6a8e
+  amd64: ghcr.io/home-assistant/amd64-base-debian:bookworm@sha256:ace0614750c6347ad5833b57f6adb0d576c31d1f8725efe38a1fb318512edf49
 args:
-  T3_VERSION: "0.0.40"
   CLOUDFLARED_VERSION: "2026.5.2"
-  HA_MCP_VERSION: "3.5.1"
 labels:
   org.opencontainers.image.title: "Home Assistant Add-on: T3 Code"
   org.opencontainers.image.description: "Headless T3 Code server with T3 Connect remote access"
