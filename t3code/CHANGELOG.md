@@ -1,3 +1,9 @@
+## 0.1.11
+
+- Select the architecture-specific Debian base directly in the Dockerfile so Supervisor's Alpine BUILD_FROM default cannot break installation.
+- Remove deprecated build.yaml and keep build parameters and labels in the Dockerfile.
+- Test source builds with the same default base argument used by Supervisor.
+
 ## Fork distribution
 
 - Use the original T3 Code name and slug in the papatistos repository.

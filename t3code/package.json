@@ -1,6 +1,6 @@
 {
   "name": "t3code-home-assistant-runtime",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.316",

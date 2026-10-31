@@ -1,8 +1,12 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:bookworm@sha256:ace0614750c6347ad5833b57f6adb0d576c31d1f8725efe38a1fb318512edf49
+ARG BUILD_ARCH=amd64
 FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS node-runtime
 FROM python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f AS python-runtime
+FROM ghcr.io/home-assistant/amd64-base-debian:bookworm@sha256:ace0614750c6347ad5833b57f6adb0d576c31d1f8725efe38a1fb318512edf49 AS ha-base-amd64
+FROM ghcr.io/home-assistant/aarch64-base-debian:bookworm@sha256:19c262f6a05c25fe280fa7b54fc9172d6461e90c7714d82a03eb041e83ee6a8e AS ha-base-aarch64
+# Supervisor supplies an Alpine BUILD_FROM by default. Select our Debian base
+# directly by architecture so source builds do not depend on deprecated build.yaml.
 # hadolint ignore=DL3006
-FROM ${BUILD_FROM}
+FROM ha-base-${BUILD_ARCH}
 
 ARG BUILD_ARCH
 ARG CLOUDFLARED_VERSION=2026.5.2
@@ -74,6 +78,11 @@ ENV HOME=/data/home \
     T3CODE_CLOUDFLARED_PATH=/usr/local/bin/cloudflared \
     T3CODE_TELEMETRY_ENABLED=false \
     NODE_OPTIONS=--no-warnings
+
+LABEL org.opencontainers.image.title="Home Assistant Add-on: T3 Code" \
+      org.opencontainers.image.description="Headless T3 Code server with T3 Connect remote access" \
+      org.opencontainers.image.source="https://github.com/papatistos/t3code-home-assistant-addon" \
+      org.opencontainers.image.licenses="MIT"
 
 WORKDIR /config
 CMD ["/run.sh"]
