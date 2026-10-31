@@ -45,7 +45,7 @@ done
 # Persistent state
 # ---------------------------------------------------------------------------
 mkdir -p "${HOME}" "${T3CODE_HOME}" "${HOME}/.config"
-git config --global --add safe.directory '*' 2>/dev/null || true
+git config --global --add safe.directory /config 2>/dev/null || true
 if ! git config --global user.email >/dev/null 2>&1; then
     git config --global user.email "t3code@homeassistant.local"
     git config --global user.name "T3 Code"
