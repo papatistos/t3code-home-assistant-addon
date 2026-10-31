@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="t3ha-smoke-") as temporary:
         docker("run", "--rm", "--network", network, "--ip", "172.30.32.3",
                "--entrypoint", "python3", image, "-c", probe, "denied")
         docker("exec", "-i", name, "python3", "-", input=(repo / "tests/mcp-smoke.py").read_text())
-        docker("exec", name, "ha", "--version")
+        docker("exec", name, "ha", "--help", capture_output=True)
         docker("exec", name, "ha", "core", "check")
         print("PASS: ha CLI sends an authenticated configuration-check request to the mock Supervisor")
         output = docker("logs", name, capture_output=True)
