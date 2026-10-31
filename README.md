@@ -1,20 +1,33 @@
 # T3 Code for Home Assistant
 
-[![Build add-on](https://github.com/oded996/t3code-home-assistant-addon/actions/workflows/builder.yaml/badge.svg)](https://github.com/oded996/t3code-home-assistant-addon/actions/workflows/builder.yaml)
+[![Build add-on](https://github.com/papatistos/t3code-home-assistant-addon/actions/workflows/builder.yaml/badge.svg)](https://github.com/papatistos/t3code-home-assistant-addon/actions/workflows/builder.yaml)
 
 Run a headless [T3 Code](https://github.com/pingdotgg/t3code) server on your Home Assistant
 box and control AI coding agents (Claude Code, Codex, OpenCode) from the T3 Code app on your
 phone or desktop through **T3 Connect**.
 
-There is no T3 Code UI on Home Assistant itself. The add-on only exposes a small status page
-to sign in to T3 Connect. Everything else, including provider logins, is done remotely from
-the T3 Code app.
+The Home Assistant sidebar panel manages T3 Connect and provider sign-ins.
+Use the T3 Code app to work with agents.
 
-## Install the hardened local version
+## Install
 
-Follow [INSTALL-LOCAL.md](INSTALL-LOCAL.md). Copy the patched source into Home
-Assistant's local add-on folder and install **T3 Code (hardened local)**.
-The patched configuration builds locally and does not pull the original container.
+1. Open Settings > Apps > Install app, or Settings > Add-ons > Add-on store on older releases.
+2. Open the menu, select Repositories, and add:
+
+   ```text
+   https://github.com/papatistos/t3code-home-assistant-addon
+   ```
+
+3. Install **T3 Code** from **T3 Code for Home Assistant**. Home Assistant builds
+   the add-on from this fork's source. The first build can take several minutes.
+4. Start the add-on and open its sidebar panel to sign in to T3 Connect and your
+   provider. Open the T3 Code app with the same T3 account to connect.
+
+Keep protection mode enabled. Leave the network port disabled when using T3 Connect.
+See [INSTALL-LOCAL.md](INSTALL-LOCAL.md) if you prefer installing a local copy.
+
+This repository is a fork of
+[oded996/t3code-home-assistant-addon](https://github.com/oded996/t3code-home-assistant-addon).
 
 This checkout restricts the management server to the Supervisor ingress proxy,
 removes diagnostic endpoints, and preserves the original Home Assistant access.
@@ -32,7 +45,7 @@ See [t3code/DOCS.md](t3code/DOCS.md) for configuration and
 
 ## Development
 
-Home Assistant builds the patched add-on from local source. To test a build with
+Home Assistant builds the add-on from the repository source. To test a build with
 the official Home Assistant builder:
 
 ```bash

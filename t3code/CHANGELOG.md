@@ -1,3 +1,9 @@
+## Fork distribution
+
+- Use the original T3 Code name and slug in the papatistos repository.
+- Install from the fork URL with a source build in Home Assistant.
+- Keep CI builds as tests without publishing container images.
+
 ## 0.1.10 (hardened local)
 
 - Preserve the original Supervisor manager permissions and mounts for configuration, add-ons, shared files, and SSL certificates so agents can configure Home Assistant fully.

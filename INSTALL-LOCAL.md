@@ -1,7 +1,8 @@
-# Install the hardened local add-on
+# Install a local copy of T3 Code
 
-Use the patched source in this checkout or the accompanying archive. Adding the
-original GitHub repository to Home Assistant installs the original add-on.
+For normal installation, add `https://github.com/papatistos/t3code-home-assistant-addon`
+to Home Assistant's repositories and install T3 Code as described in the README.
+Use the instructions below only if you prefer a local source copy.
 
 1. Make a Home Assistant backup and download a copy to another device.
 2. Open Home Assistant's local add-on folder through Samba or Terminal & SSH.
@@ -10,13 +11,13 @@ original GitHub repository to Home Assistant installs the original add-on.
    mount it at `/addons`. Use the local add-on folder on your installation, not
    the Home Assistant configuration folder.
 3. Extract the archive into the local add-on folder. The archive creates a new
-   `t3code_hardened` folder. If a `t3code_hardened` folder already exists, stop and
+   `t3code` folder. If a `t3code` folder already exists, stop and
    preserve the existing folder before proceeding. Alternatively, copy the
-   checkout's `t3code` folder into the local add-on folder as `t3code_hardened`.
-   The `Dockerfile` and `config.yaml` must be directly inside `t3code_hardened`.
+   checkout's `t3code` folder into the local add-on folder as `t3code`.
+   The `Dockerfile` and `config.yaml` must be directly inside `t3code`.
 4. In Settings > Apps > Install app, or Settings > Add-ons > Add-on store on older
    releases, select **Check for updates** from the menu and refresh the page.
-5. Select **T3 Code (hardened local)** under Local apps/add-ons and install it.
+5. Select **T3 Code** under Local apps/add-ons and install it.
    Home Assistant builds the patched source. The first build downloads several
    dependencies and can take several minutes.
 6. Leave protection mode enabled. Leave the network port disabled for T3 Connect.
@@ -26,9 +27,9 @@ original GitHub repository to Home Assistant installs the original add-on.
    server stays running. Connect from the T3 Code app and first request a
    read-only task before allowing changes to your configuration.
 
-The hardened add-on has its own slug and persistent data. It does not reuse
-credentials or settings from the original add-on. Stop the original add-on before
-using the hardened add-on against the same configuration.
+Home Assistant gives add-ons from different repositories, and local copies,
+separate persistent data. Sign in again when moving between copies. Stop any
+previous T3 Code add-on before using another copy against the same configuration.
 
 The agents have the original Home Assistant access: write access to `/config`,
 `/addons`, and `/share`, read access to `/ssl`, administrator access through the
