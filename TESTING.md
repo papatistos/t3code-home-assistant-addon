@@ -24,17 +24,17 @@ must still select Debian and complete successfully:
 docker buildx build t3code \
   --file t3code/Dockerfile \
   --platform linux/amd64 --pull \
-  --build-arg BUILD_VERSION=0.1.11 \
+  --build-arg BUILD_VERSION=0.1.12 \
   --build-arg BUILD_ARCH=amd64 \
   --build-arg BUILD_FROM=ghcr.io/home-assistant/base:latest \
-  -t t3code-ha:0.1.11-amd64
+  -t t3code-ha:0.1.12-amd64
 ```
 
 Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
 container before using credentials. Run the HTTP regression tests on Node 22 in
 the container as well.
 
-Run `python3 tests/container-smoke.py t3code-ha:0.1.11-amd64` to verify
+Run `python3 tests/container-smoke.py t3code-ha:0.1.12-amd64` to verify
 full startup, real TCP-peer filtering, and the MCP initialization and tool-list
 handshake. The test creates an isolated Docker network, a mock Supervisor, and
 temporary configuration files. The test calls no device tools and uses no real

@@ -69,7 +69,7 @@ The npm audit and both Python lockfile audits reported no known vulnerabilities
 on 31 October 2026. Audit results do not guarantee the absence of vulnerabilities.
 
 The runtime pins are T3 0.1.6, Claude Code 2.1.316, Codex 0.166.0, OpenCode
-1.19.5, ha-mcp 9.0.0, Node 22.23.4, Python 3.13.18, cloudflared 2026.5.2, and
+1.19.5, ha-mcp 9.0.0, Node 22.23.4, Python 3.13.18, cloudflared 2026.10.7, and
 Home Assistant CLI 5.6.0.
 
 A real Home Assistant installation, provider sign-ins, T3 Connect pairing,
