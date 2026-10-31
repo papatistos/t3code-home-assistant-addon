@@ -3,9 +3,9 @@ name: Build add-on
 on:
   push:
     branches: [main]
-    paths: ["t3code/**", ".github/workflows/builder.yaml"]
+    paths: ["t3code/**", "tests/**", ".github/workflows/builder.yaml"]
   pull_request:
-    paths: ["t3code/**", ".github/workflows/builder.yaml"]
+    paths: ["t3code/**", "tests/**", ".github/workflows/builder.yaml"]
   workflow_dispatch:
 
 permissions:
@@ -14,17 +14,37 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, aarch64]
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Test source build
-        uses: home-assistant/builder@624299e7dd9fcd763ea8a39b719809ab3674c405
-        with:
-          args: |
-            --test \
-            --${{ matrix.arch }} \
-            --target t3code
+      - name: Build with Supervisor arguments
+        run: |
+          version=$(awk -F'"' '/^version:/ {print $2}' t3code/config.yaml)
+          docker buildx build t3code \
+            --tag t3code-ha:test \
+            --file t3code/Dockerfile \
+            --platform "${{ matrix.platform }}" \
+            --pull \
+            --label "io.hass.version=$version" \
+            --label "io.hass.arch=${{ matrix.arch }}" \
+            --label io.hass.type=app \
+            --build-arg "BUILD_VERSION=$version" \
+            --build-arg "BUILD_ARCH=${{ matrix.arch }}" \
+            --build-arg BUILD_FROM=ghcr.io/home-assistant/base:latest
+      - name: Verify image and management security
+        run: |
+          docker run --rm --entrypoint /bin/bash t3code-ha:test -c 'set -e; command -v apt-get; test -x /init; node --version; python3 --version'
+          docker run --rm -v "$PWD:/repo:ro" --entrypoint node t3code-ha:test --test /repo/tests/status-server.test.mjs
+      - name: Verify startup and MCP against a mock Supervisor
+        run: python3 tests/container-smoke.py t3code-ha:test
