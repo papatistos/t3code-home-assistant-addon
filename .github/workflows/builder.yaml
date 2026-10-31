@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build:
@@ -22,34 +21,10 @@ jobs:
         arch: [amd64, aarch64]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Read add-on version
-        id: version
-        run: echo "version=$(grep '^version:' t3code/config.yaml | awk -F'"' '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build (test only)
-        if: github.event_name == 'pull_request'
+      - name: Test source build
         uses: home-assistant/builder@624299e7dd9fcd763ea8a39b719809ab3674c405
         with:
           args: |
             --test \
             --${{ matrix.arch }} \
-            --target t3code \
-            --docker-hub ghcr.io/${{ github.repository_owner }}
-
-      - name: Build and push
-        if: github.event_name != 'pull_request'
-        uses: home-assistant/builder@624299e7dd9fcd763ea8a39b719809ab3674c405
-        with:
-          args: |
-            --${{ matrix.arch }} \
-            --target t3code \
-            --docker-hub ghcr.io/${{ github.repository_owner }}
+            --target t3code
