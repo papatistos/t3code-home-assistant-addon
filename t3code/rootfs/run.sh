@@ -3,6 +3,7 @@
 # bashio enables errexit/nounset; we manage failures ourselves.
 set +o errexit +o nounset
 set -o pipefail
+umask 077
 
 export HOME=/data/home
 export T3CODE_HOME=/data/t3code
@@ -14,6 +15,17 @@ LAN_PORT=$(bashio::config 'lan_port' '3773')
 LOG_LEVEL=$(bashio::config 'log_level' 'info')
 GIT_INIT_CONFIG=$(bashio::config 'git_init_config' 'false')
 ENABLE_HA_MCP=$(bashio::config 'enable_ha_mcp' 'true')
+
+# Bashio can return an empty value when the Supervisor request fails. Never
+# interpret an unreadable remote mode as permission to bind the LAN interface.
+case "${REMOTE_MODE}" in
+    t3_connect|lan) ;;
+    *) bashio::log.fatal "Cannot read a valid remote_mode; refusing to start"; exit 1 ;;
+esac
+if ! [[ "${LAN_PORT}" =~ ^[0-9]+$ ]] || [ "${LAN_PORT}" -lt 1 ] || [ "${LAN_PORT}" -gt 65535 ]; then
+    bashio::log.fatal "Cannot read a valid lan_port; refusing to start"
+    exit 1
+fi
 
 # Optional provider credentials (alternative to signing in from the status page).
 if bashio::config.has_value claude_code_oauth_token; then

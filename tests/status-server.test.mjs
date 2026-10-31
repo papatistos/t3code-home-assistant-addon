@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { once } from "node:events";
 import { test } from "node:test";
+import { Script } from "node:vm";
 import { createStatusServer, isIngressRequest } from "../t3code/rootfs/opt/t3code/status-server.mjs";
 
 async function serve(t, options) {
@@ -56,6 +57,7 @@ test("ingress can render the page and manage a login without exposing diagnostic
   const page = await request("/api/hassio_ingress/test/", { headers: { "x-ingress-path": "/api/hassio_ingress/test" } });
   assert.equal(page.status, 200);
   assert.match(page.text, /const BASE = "\/api\/hassio_ingress\/test"/);
+  new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]);
   assert.equal((await request("/api/logout", { method: "POST", headers: jsonHeaders, body: "{}" })).status, 200);
   assert.deepEqual(calls, [["t3", ["connect", "logout"]]]);
   for (const path of ["/api/diag", "/api/diag/git", "/api/diag/logs", "/api/diag/exec", "/api/diag/checkpoint", "/api/diag/claude"]) {
