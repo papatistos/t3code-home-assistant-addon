@@ -29,16 +29,21 @@ See [INSTALL-LOCAL.md](INSTALL-LOCAL.md) if you prefer installing a local copy.
 This repository is a fork of
 [oded996/t3code-home-assistant-addon](https://github.com/oded996/t3code-home-assistant-addon).
 
-This checkout restricts the management server to the Supervisor ingress proxy,
-removes diagnostic endpoints, and preserves the original Home Assistant access.
-Agents can edit `/config`, `/addons`, and `/share`, read `/ssl`, and use the
-Home Assistant Core API and Supervisor manager API to configure the system.
-The `ha` CLI is installed at a pinned version with checksum verification.
+## Changes from the original
 
-The T3 server and provider CLIs use an npm integrity lockfile. The Home Assistant
-MCP server uses architecture-specific Python hash lockfiles. Node, Python, and
-Home Assistant base images are pinned by digest. The Cloudflare relay executable
-is checked against its published SHA-256 digest.
+Compared with the original add-on at version 0.1.8:
+
+- The management panel accepts only Home Assistant ingress connections and rejects cross-site requests and invalid sign-in input.
+- The diagnostic HTTP endpoints for shell execution, Claude prompts, logs, and Git operations are removed.
+- T3 is updated from 0.0.40 to 0.1.6, and ha-mcp is updated from 3.5.1 to 9.0.0 to address dependency advisories.
+- Dependency lockfiles, pinned runtime images, executable checksums, and pinned CI actions make builds more predictable and verifiable.
+- Startup rejects invalid connection settings, creates private credential files, and limits Git's automatic directory trust to `/config`.
+- Home Assistant builds the add-on from this fork's source instead of pulling the original author's container image.
+- Automated tests verify management access controls, startup, MCP communication, and the `ha` CLI in ARM64 and x86-64 Docker containers.
+
+The original Home Assistant access is preserved. Agents can write to `/config`,
+`/addons`, and `/share`, read `/ssl`, and use the Home Assistant Core administrator
+API, Supervisor manager API, and `ha` CLI to configure Home Assistant.
 
 See [t3code/DOCS.md](t3code/DOCS.md) for configuration and
 [TESTING.md](TESTING.md) for verification.
