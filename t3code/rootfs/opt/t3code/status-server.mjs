@@ -1,7 +1,7 @@
 // Minimal ingress status page for the T3 Code add-on.
 // - Shows T3 Connect state and drives the headless (out-of-band OAuth) login.
 // - Shows provider (Claude Code, Codex) login state and drives their headless
-//   logins the same way: start -> show URL -> user pastes code (if asked) -> done.
+//   logins with either browser-entered device codes or terminal-entered OAuth codes.
 // No T3 Code UI is served here; remote clients connect through T3 Connect.
 
 import http from "node:http";
@@ -32,8 +32,8 @@ function stripAnsi(s) {
     .replace(/\x07/g, "\n");
 }
 
-async function connectStatus() {
-  const r = await run("t3", ["connect", "status", "--json"]);
+async function connectStatus(runCommand = run) {
+  const r = await runCommand("t3", ["connect", "status", "--json"]);
   const raw = r.stdout + r.stderr;
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
@@ -66,6 +66,7 @@ const FLOWS = {
   codex: {
     label: "Codex",
     command: "codex login --device-auth",
+    codeEntry: "browser",
     done: /Logged in|Successfully|success/i,
     envSignedIn: () => Boolean(process.env.OPENAI_API_KEY),
   },
@@ -74,14 +75,37 @@ const FLOWS = {
 const sessions = {}; // name -> { proc, output, url, code, state, error, startedAt }
 
 function active(s) {
-  return s && (s.state === "starting" || s.state === "waiting_for_code" || s.state === "submitted");
+  return s && (s.state === "starting" || s.state === "waiting_for_code" || s.state === "waiting_for_browser" || s.state === "submitted");
 }
 
-function startFlow(name) {
+// Codex 0.166.0 prints its code on the line after the one-time-code label.
+// Parse the complete accumulated output so chunk boundaries cannot lose the code.
+export function parseLoginOutput(output) {
+  const clean = stripAnsi(output);
+  const link = clean.match(/https?:\/\/[^\s'"<>]+(?=[\s'"<>])/);
+  const lines = clean.split(/\r?\n/);
+  const codeToken = /^(?:[A-Z0-9]{4,5}-[A-Z0-9]{4,5}|[A-Z0-9]{8,9})$/;
+  let code = null;
+  for (let i = 0; i < lines.length - 2; i++) {
+    if (!/(?:one[- ]time|device)\s+code/i.test(lines[i])) continue;
+    const candidate = lines[i + 1].trim();
+    if (codeToken.test(candidate)) {
+      code = candidate;
+      break;
+    }
+  }
+  if (!code) {
+    const inline = clean.match(/(?:code|enter)[^\n]{0,40}?\b([A-Z0-9]{4,5}-[A-Z0-9]{4,5}|[A-Z0-9]{8,9})\b/);
+    code = inline?.[1] || null;
+  }
+  return { url: link ? link[0].replace(/[),.]+$/, "") : null, code };
+}
+
+function startFlow(name, spawnProcess = spawn) {
   const flow = FLOWS[name];
   if (!flow) return null;
   if (active(sessions[name])) return sessions[name];
-  const proc = spawn("script", ["-qfec", flow.command, "/dev/null"], {
+  const proc = spawnProcess("script", ["-qfec", flow.command, "/dev/null"], {
     env: { ...process.env, TERM: "dumb", NO_COLOR: "1", BROWSER: "/bin/false" },
     cwd: "/config",
   });
@@ -90,16 +114,12 @@ function startFlow(name) {
   const onData = (chunk) => {
     s.output += chunk.toString();
     const clean = stripAnsi(s.output);
-    if (!s.url) {
-      const m = clean.match(/https?:\/\/[^\s'"<>]+/);
-      if (m) s.url = m[0].replace(/[),.]+$/, "");
+    const parsed = parseLoginOutput(s.output);
+    s.url ||= parsed.url;
+    s.code ||= parsed.code;
+    if (s.url && s.state === "starting") {
+      s.state = flow.codeEntry === "browser" ? "waiting_for_browser" : "waiting_for_code";
     }
-    // Device-code flows print a short code the user types into the browser.
-    if (!s.code) {
-      const m = clean.match(/(?:code|enter)[^\n]{0,40}?\b([A-Z0-9]{4,5}-[A-Z0-9]{4,5}|[A-Z0-9]{8,9})\b/);
-      if (m) s.code = m[1];
-    }
-    if (s.url && s.state === "starting" && /code/i.test(clean)) s.state = "waiting_for_code";
     if (flow.done.test(clean)) s.state = "done";
     if (s.state === "submitted" && /invalid|rejected|expired|error|failed|denied/i.test(clean.slice(-400))) {
       s.state = "waiting_for_code";
@@ -122,6 +142,9 @@ function startFlow(name) {
 }
 
 function submitCode(name, code) {
+  if (FLOWS[name]?.codeEntry === "browser") {
+    return { ok: false, error: "Enter the device code on the OpenAI sign-in page. Codex completes sign-in automatically." };
+  }
   const s = sessions[name];
   if (!active(s)) return { ok: false, error: "No login in progress. Click 'Sign in' first." };
   s.error = null;
@@ -133,14 +156,14 @@ function submitCode(name, code) {
 function publicSession(name) {
   const s = sessions[name];
   if (!s) return null;
-  return { state: s.state, url: s.url, code: s.code, error: s.error, startedAt: s.startedAt };
+  return { state: s.state, url: s.url, code: s.code, codeEntry: FLOWS[name].codeEntry || "terminal", error: s.error, startedAt: s.startedAt };
 }
 
 // ---- provider status ------------------------------------------------------
 
-async function providerStatus() {
+async function providerStatus(runCommand = run) {
   const out = {};
-  const claude = await run("claude", ["auth", "status"]);
+  const claude = await runCommand("claude", ["auth", "status"]);
   const cRaw = stripAnsi(claude.stdout + claude.stderr).trim();
   out.claude = {
     installed: !(claude.code === 127 || /ENOENT/.test(cRaw)),
@@ -149,7 +172,7 @@ async function providerStatus() {
     detail: cRaw.split("\n")[0] || "",
     session: publicSession("claude"),
   };
-  const codex = await run("codex", ["login", "status"]);
+  const codex = await runCommand("codex", ["login", "status"]);
   const xRaw = stripAnsi(codex.stdout + codex.stderr).trim();
   out.codex = {
     installed: !(codex.code === 127 || /ENOENT/.test(xRaw)),
@@ -217,7 +240,7 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-export function createStatusServer({ runCommand = run, isTrustedRequest = isIngressRequest } = {}) {
+export function createStatusServer({ runCommand = run, isTrustedRequest = isIngressRequest, spawnLogin = spawn } = {}) {
   const server = http.createServer(async (req, res) => {
     if (!isTrustedRequest(req)) return json(res, 403, { error: "Ingress connections only" });
     if (req.method === "POST") {
@@ -238,9 +261,9 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
       if (req.method === "GET" && path === "/api/status") {
         return json(res, 200, {
           mode: MODE,
-          connect: await connectStatus(),
+          connect: await connectStatus(runCommand),
           session: publicSession("t3"),
-          providers: await providerStatus(),
+          providers: await providerStatus(runCommand),
           lan: MODE === "lan" ? lanInfo() : null,
         });
       }
@@ -248,7 +271,7 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
       if (req.method === "POST" && m) {
         const [, name, action] = m;
         if (action === "start") {
-          const s = startFlow(name);
+          const s = startFlow(name, spawnLogin);
           for (let i = 0; i < 80 && !s.url && s.state === "starting"; i++) {
             await new Promise((r) => setTimeout(r, 250));
           }
@@ -333,6 +356,14 @@ function saveInputs(){ for (const n of ["t3","claude","codex"]) { const e=docume
 async function refresh(){ try { st = await api("/api/status"); saveInputs(); renderConnect(); renderProviders(); } catch (e) { document.getElementById("connect").textContent = "Status server unreachable: " + e; } }
 
 function flowHtml(name, s){
+  if (s.codeEntry === "browser") {
+    if (!s.code || !s.url) return '<p class="muted">Waiting for Codex to provide the device code and sign-in link…</p>';
+    return '<p>Enter this device code on the OpenAI sign-in page:</p>' +
+      '<p><span class="big">'+esc(s.code)+'</span></p>' +
+      '<p><a href="'+esc(s.url)+'" target="_blank" rel="noopener">Open OpenAI sign-in</a></p>' +
+      '<p class="muted">Complete sign-in in your browser. Codex will finish automatically; this page updates when sign-in completes.</p>' +
+      (s.error ? '<p class="bad">'+esc(s.error)+'</p>' : '');
+  }
   let h = '<p><b>Step 1.</b> Open this link on any device with a browser and sign in:</p>' +
     (s.url ? '<p><a href="'+esc(s.url)+'" target="_blank" rel="noopener">'+esc(s.url)+'</a></p>' : '<p class="muted">Waiting for the login link…</p>');
   if (s.code) h += '<p>If asked for a code, enter: <span class="big">'+esc(s.code)+'</span></p>';

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { once } from "node:events";
+import { once, EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { test } from "node:test";
-import { Script } from "node:vm";
-import { createStatusServer, isIngressRequest } from "../t3code/rootfs/opt/t3code/status-server.mjs";
+import { Script, createContext } from "node:vm";
+import { createStatusServer, isIngressRequest, parseLoginOutput } from "../t3code/rootfs/opt/t3code/status-server.mjs";
 
 async function serve(t, options) {
   const server = createStatusServer(options);
@@ -90,4 +91,89 @@ test("authorization code inputs reject malformed JSON, control characters, and e
 test("an ingress path cannot inject script into the page", async t => {
   const request = await serve(t, ingress);
   assert.equal((await request("/", { headers: { "x-ingress-path": '\";</script><script>alert(1)</script>' } })).status, 400);
+});
+
+// Matches the prompt layout in Codex rust-v0.166.0 login/src/device_code_auth.rs.
+// The code is a fictional test value, never obtained from an authentication run.
+const codexPrompt = "\nWelcome to Codex [v\x1b[90m0.166.0\x1b[0m]\n" +
+  "OpenAI's command-line coding agent\n\n" +
+  "Follow these steps to sign in with ChatGPT using device code authorization:\n\n" +
+  "1. Open this link in your browser and sign in to your account\n" +
+  "   \x1b[34mhttps://auth.openai.com/codex/device\x1b[0m\n\n" +
+  "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\n" +
+  "   \x1b[34mABCD-EFGHI\x1b[0m\n\n" +
+  "Continue only if you started this login in Codex.\n";
+
+test("Codex device codes are extracted from their own ANSI-colored line", () => {
+  assert.deepEqual(parseLoginOutput(codexPrompt), {
+    url: "https://auth.openai.com/codex/device", code: "ABCD-EFGHI",
+  });
+  assert.equal(parseLoginOutput(codexPrompt.replaceAll("\n", "\r\n")).code, "ABCD-EFGHI");
+  const partial = codexPrompt.slice(0, codexPrompt.indexOf("ABCD-EFGHI") + 9);
+  assert.equal(parseLoginOutput(partial).code, null, "do not freeze an incomplete code at a chunk boundary");
+  assert.equal(parseLoginOutput("Open https://auth.openai.co").url, null);
+  assert.equal(parseLoginOutput("Enter code: ABCD-1234\n").code, "ABCD-1234");
+});
+
+test("device-login page sends the code to OpenAI without a paste-back field", async t => {
+  const request = await serve(t, ingress);
+  const page = await request("/");
+  const context = createContext({ fetch: () => new Promise(() => {}), setInterval: () => 0 });
+  new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(context);
+  const html = context.flowHtml("codex", {
+    codeEntry: "browser", url: "https://auth.openai.com/codex/device", code: "ABCD-EFGHI",
+    state: "waiting_for_browser",
+  });
+  assert.match(html, /ABCD-EFGHI/);
+  assert.match(html, /Enter this device code on the OpenAI sign-in page/);
+  assert.doesNotMatch(html, /<input|Submit code|paste back/);
+  assert.doesNotMatch(context.flowHtml("codex", { codeEntry: "browser", url: "https://auth.openai.com/codex/device" }), /<a /,
+    "wait for the code before sending the user to OpenAI");
+  const terminal = context.flowHtml("claude", { codeEntry: "terminal", url: "https://example.test/login" });
+  assert.match(terminal, /<input/);
+  assert.match(terminal, /Submit code/);
+});
+
+test("Codex login API retains a fragmented device code and waits for browser authorization", async t => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.stdin = new PassThrough();
+  const submitted = [];
+  child.stdin.on("data", chunk => submitted.push(chunk.toString()));
+  let signedIn = false;
+  const splitAt = codexPrompt.indexOf("ABCD-EFGHI") + 9;
+  const request = await serve(t, { ...ingress,
+    spawnLogin: (command, args) => {
+      assert.equal(command, "script");
+      assert.equal(args[1], "codex login --device-auth");
+      queueMicrotask(() => child.stdout.write(codexPrompt.slice(0, splitAt)));
+      return child;
+    },
+    runCommand: async (command, args) => {
+      if (command === "t3") return { ok: true, stdout: '{"authenticated":false}', stderr: "" };
+      return { ok: signedIn && command === "codex", stdout: signedIn && command === "codex" ? "Logged in using ChatGPT" : "Not logged in", stderr: "" };
+    },
+  });
+  t.after(() => {
+    child.emit("exit", 0);
+    child.stdout.destroy(); child.stderr.destroy(); child.stdin.destroy();
+  });
+  const start = await request("/api/login/codex/start", { method: "POST", headers: jsonHeaders, body: "{}" });
+  const first = JSON.parse(start.text);
+  assert.equal(first.codeEntry, "browser");
+  assert.equal(first.state, "waiting_for_browser");
+  assert.equal(first.code, null);
+  child.stderr.write(codexPrompt.slice(splitAt));
+  let status = JSON.parse((await request("/api/status")).text);
+  assert.equal(status.providers.codex.session.code, "ABCD-EFGHI");
+  const rejected = await request("/api/login/codex/code", { method: "POST", headers: jsonHeaders, body: '{"code":"ABCD-EFGHI"}' });
+  assert.equal(JSON.parse(rejected.text).ok, false);
+  assert.deepEqual(submitted, [], "device codes must never be written to Codex stdin");
+  signedIn = true;
+  child.stdout.write("Successfully logged in\n");
+  child.emit("exit", 0);
+  status = JSON.parse((await request("/api/status")).text);
+  assert.equal(status.providers.codex.session.state, "done");
+  assert.equal(status.providers.codex.signedIn, true);
 });

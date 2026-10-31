@@ -1,3 +1,9 @@
+## 0.1.13
+
+- Show the Codex device code printed on a separate terminal line, including ANSI-colored and fragmented output.
+- Direct users to enter the device code on OpenAI's sign-in page and wait for automatic completion. Remove the unused paste-back field for Codex.
+- Add regression tests using fictional Codex device-login output, without starting a real authentication request.
+
 ## 0.1.12
 
 - Update the cloudflared relay client from 2026.5.2 to 2026.10.7 with verified SHA-256 checksums for amd64 and ARM64.
