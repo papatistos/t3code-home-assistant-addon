@@ -32,7 +32,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 # npm ci checks the integrity hashes and versions of the complete dependency tree.
 COPY package.json package-lock.json /opt/t3code-runtime/
-RUN npm ci --prefix /opt/t3code-runtime --omit=dev --no-fund --no-audit \
+RUN npm ci --loglevel=info --prefix /opt/t3code-runtime --omit=dev --no-fund --no-audit \
     && for cli in t3 claude codex opencode; do \
         ln -s "/opt/t3code-runtime/node_modules/.bin/${cli}" "/usr/local/bin/${cli}"; \
     done \
