@@ -32,7 +32,7 @@ docker buildx build t3code \
   -t t3code-ha:0.1.14-amd64
 ```
 
-Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
+Check the provider versions, `t3 serve --help`, and that `ha-mcp` is installed inside the
 container before using credentials. Run the HTTP regression tests on Node 22 in
 the container as well.
 
