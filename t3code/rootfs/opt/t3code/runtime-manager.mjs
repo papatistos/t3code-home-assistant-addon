@@ -8,6 +8,12 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 
 const stable = v => typeof v === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v);
+// Real T3 executables print `t3 v0.1.7` for --version; accept a bare version too.
+export function parseVersionOutput(output) {
+  const version = /^(?:t3\s+)?v?(\S+)$/.exec(String(output).trim())?.[1];
+  if (!stable(version)) throw new Error('unrecognized version output');
+  return version;
+}
 export function newer(a, b) {
   if (!stable(a) || !stable(b)) throw new Error('invalid version');
   const x = a.split('.').map(BigInt), y = b.split('.').map(BigInt);
@@ -129,7 +135,7 @@ export class RuntimeManager {
       await this.run('tar', ['-xf', archive, '-C', stage, '--strip-components=1'], remaining());
       await fs.rm(archive); await fs.rm(sums);
       const exe = path.join(stage, 't3');
-      if ((await this.run(exe, ['--version'], Math.min(15000, remaining()))) !== version) throw new Error('version mismatch');
+      if (parseVersionOutput(await this.run(exe, ['--version'], Math.min(15000, remaining()))) !== version) throw new Error('version mismatch');
       const result = JSON.parse(await this.run(exe, ['__service-preflight', '--database-path',
         path.join(this.home, 'userdata', 'statev2.sqlite'), '--launcher-protocol', '3'], Math.min(15000, remaining())));
       if (result.status !== 'ready' || result.version !== version || result.launcherProtocol !== 3) throw new Error('preflight blocked');
@@ -213,7 +219,7 @@ export class RuntimeManager {
     const s = await this.load();
     if (s.pending) throw new Error('startup trial still pending');
     const version = await this.latestVersion();
-    const current = s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active;
+    const current = s.active === 'bundled' ? parseVersionOutput(await this.run(this.bundled, ['--version'])) : s.active;
     if (!newer(version, current)) return { message: `T3 ${current} is up to date.` };
     await this.install(version);
     const latest = await this.load();
@@ -244,7 +250,7 @@ export class RuntimeManager {
     let version, phase = 'Release check';
     try {
       version = manual ? s.requested : await this.latestVersion();
-      const current = s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active;
+      const current = s.active === 'bundled' ? parseVersionOutput(await this.run(this.bundled, ['--version'])) : s.active;
       if (!newer(version, current)) {
         if (manual) { delete s.requested; await this.save(s); }
         await this.cleanup(s);
@@ -350,7 +356,7 @@ export class RuntimeManager {
           if (!s.pending) { reply(applying, false); applying = null; }
         }
         const version = s.pending?.version ?? s.active;
-        const pending = s.pending && { ...s.pending, fromVersion: s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active };
+        const pending = s.pending && { ...s.pending, fromVersion: s.active === 'bundled' ? parseVersionOutput(await this.run(this.bundled, ['--version'])) : s.active };
         this.log(`Starting: t3 ${args[0]} (${version})`);
         child = this.start(version, args, pending);
         // Always attach before awaiting IPC; failed execs emit error, not exit.

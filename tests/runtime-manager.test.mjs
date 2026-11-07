@@ -6,7 +6,7 @@ import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { RuntimeManager, command, newer } from '../t3code/rootfs/opt/t3code/runtime-manager.mjs';
+import { RuntimeManager, command, newer, parseVersionOutput } from '../t3code/rootfs/opt/t3code/runtime-manager.mjs';
 
 const modulePath = new URL('../t3code/rootfs/opt/t3code/runtime-manager.mjs', import.meta.url).href;
 async function fixture(t, { behavior = 'ready', arch = 'x64' } = {}) {
@@ -16,12 +16,12 @@ async function fixture(t, { behavior = 'ready', arch = 'x64' } = {}) {
   await fs.mkdir(home);
   await fs.writeFile(path.join(home, 'state'), 'original');
   const bundled = path.join(dir, 'bundled');
-  await fs.writeFile(bundled, `#!${process.execPath}\nconsole.log('0.1.6');\n`, { mode: 0o700 });
+  await fs.writeFile(bundled, `#!${process.execPath}\nconsole.log('t3 v0.1.6');\n`, { mode: 0o700 });
   const source = path.join(dir, 't3-0.1.7-linux-' + arch);
   await fs.mkdir(source);
   await fs.writeFile(path.join(source, 't3'), `#!${process.execPath}
 import fs from 'node:fs';
-if (process.argv[2] === '--version') console.log('0.1.7');
+if (process.argv[2] === '--version') console.log('t3 v0.1.7');
 else if (process.argv[2] === '__service-preflight') console.log(JSON.stringify({status:'ready',version:'0.1.7',launcherProtocol:3}));
 else {
   fs.writeFileSync(process.env.T3CODE_HOME + '/state', 'migrated');
@@ -326,7 +326,7 @@ for (const behavior of ['ready','exit']) test(`manual update supervisor stops T3
   // Record a final write during graceful shutdown. The backup must contain it.
   await fs.writeFile(f.manager.bundled, `#!${process.execPath}
 import fs from 'node:fs';
-if(process.argv[2] === '--version') console.log('0.1.6');
+if(process.argv[2] === '--version') console.log('t3 v0.1.6');
 else {
   process.on('SIGTERM',()=>{fs.writeFileSync(process.env.T3CODE_HOME+'/state','shutdown flushed');process.exit(0);});
   setInterval(()=>{},1000);
@@ -392,7 +392,7 @@ test('activation saves the new selection before removing snapshot and old runtim
   await f.manager.commit(s);
   await gone(f.manager.snapshot(s.pending));
   assert.deepEqual(await fs.readdir(path.join(f.manager.root, 'versions')), ['0.1.7']);
-  assert.equal(await fs.readFile(f.manager.bundled, 'utf8'), `#!${process.execPath}\nconsole.log('0.1.6');\n`);
+  assert.equal(await fs.readFile(f.manager.bundled, 'utf8'), `#!${process.execPath}\nconsole.log('t3 v0.1.6');\n`);
 });
 
 test('rollback saves restored state before removing trial snapshot and restore and failed copies', async t => {
@@ -519,4 +519,12 @@ test('legacy home runtime stays in snapshots and survives startup cleanup', asyn
   await f.manager.commit(s);
   await f.manager.prepare(false);
   assert.equal(await fs.readFile(path.join(f.home, 'runtime', 'versions', '0.1.6', 't3'), 'utf8'), 'legacy runtime');
+});
+
+test('version output from real T3 executables is parsed, and anything else is refused', () => {
+  assert.equal(parseVersionOutput('t3 v0.1.7\n'), '0.1.7');
+  assert.equal(parseVersionOutput('0.1.6'), '0.1.6');
+  assert.equal(parseVersionOutput('v0.1.6'), '0.1.6');
+  for (const bad of ['', 't3 v0.1', 'warning: x\nt3 v0.1.7', 't3 v0.1.7-beta.1', 'node v22.1.0'])
+    assert.throws(() => parseVersionOutput(bad));
 });
