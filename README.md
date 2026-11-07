@@ -45,14 +45,27 @@ The original Home Assistant access is preserved. Agents can write to `/config`,
 `/addons`, and `/share`, read `/ssl`, and use the Home Assistant Core administrator
 API, Supervisor manager API, and `ha` CLI to configure Home Assistant.
 
-T3 checks for a newer stable release at add-on startup and keeps installed versions
-under `/data/t3-updates`, independently of add-on releases. Set `auto_update_t3: false`
-to stop automatic checks and keep the selected version. The sidebar panel also
-has an **Update T3 now** button. It downloads and installs a newer T3 release,
-then restarts T3 immediately. Clicking the button means you are ready for that restart. The bundled T3 0.1.6 remains
-the initial fallback. Provider CLIs and the system Node.js remain pinned.
-Read [update operation and recovery](t3code/DOCS.md#t3-updates-and-recovery)
-before enabling this on valuable T3 history.
+## T3 updates
+
+T3 updates itself independently of add-on releases. You do not need a new add-on
+version to get a new T3 release.
+
+- At every add-on start, the add-on checks for a newer stable T3 release and installs
+  it. Without internet access, it starts the installed version without delay.
+- The sidebar panel has an **Update T3 now** button. It installs the newest release
+  and restarts T3 immediately, so click it only when no agent is working.
+- Before trying a new version, the add-on saves a copy of T3's data. If the new
+  version fails to start, the add-on restores that copy and the previous version.
+  The copy and the old version are deleted automatically once the update has
+  succeeded or been undone.
+- Set `auto_update_t3: false` to stop the automatic checks. The add-on then keeps
+  the current version, and the **Update T3 now** button still works.
+- The add-on keeps the bundled T3 0.1.6 as a fallback. Updates never change
+  Claude Code, Codex, OpenCode, or Node.js.
+
+After you have used a new T3 version for a while, it cannot be undone on its own.
+Take a Home Assistant backup of this add-on before updates you care about. See
+[update operation and recovery](t3code/DOCS.md#t3-updates-and-recovery) for details.
 
 See [t3code/DOCS.md](t3code/DOCS.md) for configuration and
 [TESTING.md](TESTING.md) for verification.
