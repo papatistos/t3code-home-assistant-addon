@@ -6,10 +6,14 @@ on 7 November 2026. No live Home Assistant installation was changed or restarted
 
 ## Local results
 
-- All 35 tests passed under a temporary official Node 22.23.4 executable on macOS
-  ARM64. This includes 26 updater tests and all nine existing HTTP/security/device
-  login tests. Temporary HTTP fixtures required execution outside the sandbox.
-- The 26 updater tests also passed with Node 22 inside the filesystem sandbox.
+- All 42 tests passed under a temporary official Node 22.23.4 executable on macOS
+  ARM64. This includes 30 updater tests, all nine existing HTTP/security/device
+  login tests, and three manual-update panel tests. Temporary HTTP fixtures required execution outside the sandbox.
+- The 30 updater tests also passed with Node 22 inside the filesystem sandbox.
+  Manual-update tests verify that a download leaves the running version and
+  conversation data unchanged, works with automatic updates disabled, and can be
+  installed offline at the next add-on start. Panel tests cover access controls,
+  duplicate clicks, safe failure messages, and escaped display values.
   Archive fixtures cover ARM64 and x64 asset selection, not native Linux execution.
 - `bash -n` passed for startup, helper scripts, and the MCP wrapper. `sh -n`
   passed for the new T3 wrapper. JavaScript and Python syntax checks passed.

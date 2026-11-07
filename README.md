@@ -47,7 +47,9 @@ API, Supervisor manager API, and `ha` CLI to configure Home Assistant.
 
 T3 checks for a newer stable release at add-on startup and keeps installed versions
 under `/data/t3-updates`, independently of add-on releases. Set `auto_update_t3: false`
-to keep the selected version without further checks. The bundled T3 0.1.6 remains
+to stop automatic checks and keep the selected version. The sidebar panel also
+has a **Download T3 update** button. It downloads an update without interrupting
+your work; restart the add-on in Home Assistant when you are ready to install it. The bundled T3 0.1.6 remains
 the initial fallback. Provider CLIs and the system Node.js remain pinned.
 Read [update operation and recovery](t3code/DOCS.md#t3-updates-and-recovery)
 before enabling this on valuable T3 history.

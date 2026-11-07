@@ -81,7 +81,11 @@ established by local container tests.
 asset names, checksums, incompatible preflight/protocol, disabled updates, offline
 checks, failed downloads, snapshot failure, failed or hung initial startup,
 interrupted migration and restore, selection after container-local state is lost,
-shared command routing, and crash relaunch without another update check. Fixtures
+shared command routing, and crash relaunch without another update check.
+Manual-update tests verify that downloads leave running T3 and its data unchanged,
+that requested updates survive replacement and work offline with automatic updates
+disabled, and that HTTP access controls, duplicate-click handling, failure messages,
+and escaped display values are preserved. Fixtures
 use tiny local archives and fake T3 executables; architecture cases verify asset
 selection, not execution of native ARM64 or x64 T3 binaries.
 
