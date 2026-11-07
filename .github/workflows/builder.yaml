@@ -45,6 +45,7 @@ jobs:
       - name: Verify image and management security
         run: |
           docker run --rm --entrypoint /bin/bash t3code-ha:test -c 'set -e; command -v apt-get; test -x /init; node --version; python3 --version'
-          docker run --rm -v "$PWD:/repo:ro" --entrypoint node t3code-ha:test --test /repo/tests/status-server.test.mjs
+          docker run --rm -v "$PWD:/repo:ro" --entrypoint /bin/bash t3code-ha:test -c 'node --test /repo/tests/*.test.mjs'
+          docker run --rm --entrypoint /bin/bash t3code-ha:test -c 'set -e; t3 --version; t3 serve --help; claude --version; codex --version; opencode --version; ha-mcp --help'
       - name: Verify startup and MCP against a mock Supervisor
         run: python3 tests/container-smoke.py t3code-ha:test

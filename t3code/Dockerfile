@@ -30,13 +30,16 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ldconfig
 
 # npm ci checks the integrity hashes and versions of the complete dependency tree.
+# Materialize the pinned T3 archive in the image, outside HOME/T3CODE_HOME. The npm
+# launcher otherwise downloads again after startup switches to persistent /data.
 COPY package.json package-lock.json /opt/t3code-runtime/
 RUN npm ci --loglevel=info --prefix /opt/t3code-runtime --omit=dev --no-fund --no-audit \
-    && for cli in t3 claude codex opencode; do \
+    && for cli in claude codex opencode; do \
         ln -s "/opt/t3code-runtime/node_modules/.bin/${cli}" "/usr/local/bin/${cli}"; \
     done \
     && npm cache clean --force \
-    && t3 --version
+    && T3CODE_HOME=/opt/t3code-bundled /opt/t3code-runtime/node_modules/.bin/t3 --version \
+    && /opt/t3code-bundled/runtime/versions/0.1.6/t3 --version
 
 ARG CLOUDFLARED_VERSION=2026.10.7
 # cloudflared: the T3 Connect relay client. Preinstalled so the add-on
@@ -71,7 +74,7 @@ RUN case "${BUILD_ARCH}" in \
     && chmod +x /usr/local/bin/ha
 
 COPY rootfs/ /
-RUN chmod +x /run.sh /opt/t3code/*.sh /usr/local/bin/ha-mcp-server
+RUN chmod +x /run.sh /opt/t3code/*.sh /usr/local/bin/ha-mcp-server /usr/local/bin/t3
 
 ENV HOME=/data/home \
     T3CODE_HOME=/data/t3code \

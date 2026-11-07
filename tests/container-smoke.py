@@ -63,7 +63,7 @@ print("PASS: T3 recognizes the available cloudflared relay client at version " +
 options = {
     "remote_mode": "t3_connect", "lan_port": 3773, "log_level": "info",
     "claude_code_oauth_token": "", "anthropic_api_key": "", "openai_api_key": "",
-    "git_init_config": False, "enable_ha_mcp": True, "extra_project_dirs": [],
+    "auto_update_t3": False, "git_init_config": False, "enable_ha_mcp": True, "extra_project_dirs": [],
     "git_exclude_patterns": [".storage/", "*.db"], "git_auto_exclude_large": True,
 }
 
@@ -122,6 +122,7 @@ with tempfile.TemporaryDirectory(prefix="t3ha-smoke-") as temporary:
         assert "ha-mcp configured for OpenCode" in logs
         assert "Starting: t3 serve" in logs
         assert "t3 serve exited" not in logs
+        assert "Server exited; restarting selected runtime" not in logs
         assert "ERROR:" not in logs
         assert (config / "configuration.yaml").read_text() == "default_config:\n"
         print("PASS: project registration, MCP registration, and server startup with unchanged test configuration")

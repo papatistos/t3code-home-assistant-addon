@@ -1,0 +1,7 @@
+#!/bin/sh
+# All callers, including the management panel, share the startup selection.
+executable=/opt/t3code-bundled/runtime/versions/0.1.6/t3
+if [ -f /run/t3-executable ]; then
+    IFS= read -r executable < /run/t3-executable
+fi
+exec "$executable" "$@"

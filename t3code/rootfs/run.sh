@@ -15,6 +15,7 @@ LAN_PORT=$(bashio::config 'lan_port' '3773')
 LOG_LEVEL=$(bashio::config 'log_level' 'info')
 GIT_INIT_CONFIG=$(bashio::config 'git_init_config' 'false')
 ENABLE_HA_MCP=$(bashio::config 'enable_ha_mcp' 'true')
+AUTO_UPDATE_T3=$(bashio::config 'auto_update_t3' 'true')
 
 # Bashio can return an empty value when the Supervisor request fails. Never
 # interpret an unreadable remote mode as permission to bind the LAN interface.
@@ -44,7 +45,11 @@ fi
 export T3CODE_REMOTE_MODE="${REMOTE_MODE}"
 export T3CODE_LAN_PORT="${LAN_PORT}"
 
-bashio::log.info "T3 Code add-on starting (t3 $(t3 --version 2>/dev/null || echo unknown), mode: ${REMOTE_MODE})"
+# Select once, before any T3 command can open or migrate persistent data.
+# An unreadable option must not authorize an update.
+node /opt/t3code/runtime-manager.mjs prepare "${AUTO_UPDATE_T3}" || exit 1
+
+bashio::log.info "T3 Code add-on starting (t3 $(timeout 15s t3 --version 2>/dev/null || echo unknown), mode: ${REMOTE_MODE})"
 for cli in claude codex opencode cloudflared ha ha-mcp; do
     if command -v "${cli}" >/dev/null 2>&1; then
         bashio::log.info "  found ${cli}: $(command -v "${cli}")"
@@ -88,16 +93,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Status page (ingress)
-# ---------------------------------------------------------------------------
-node /opt/t3code/status-server.mjs &
-STATUS_PID=$!
-
-# ---------------------------------------------------------------------------
 # T3 Code server
 # ---------------------------------------------------------------------------
 if [ "${REMOTE_MODE}" = "t3_connect" ]; then
-    if t3 connect status --json 2>/dev/null | sed -n '/^{/,$p' | jq -e '.authenticated and .desired' >/dev/null; then
+    if timeout 15s t3 connect status --json 2>/dev/null | sed -n '/^{/,$p' | jq -e '.authenticated and .desired' >/dev/null; then
         bashio::log.info "T3 Connect is authorized; the server will link on startup."
     else
         bashio::log.notice "T3 Connect is NOT set up yet."
@@ -111,30 +110,7 @@ else
     SERVE_ARGS=(--host 0.0.0.0 --port "${LAN_PORT}")
 fi
 
-SERVE_PID=""
-term_handler() {
-    bashio::log.info "Shutting down"
-    kill "${STATUS_PID}" 2>/dev/null || true
-    if [ -n "${SERVE_PID}" ]; then
-        kill "${SERVE_PID}" 2>/dev/null || true
-    fi
-    wait
-    exit 0
-}
-trap term_handler SIGTERM SIGINT
-
 cd /config || exit 1
-while true; do
-    bashio::log.info "Starting: t3 serve ${SERVE_ARGS[*]}"
-    t3 serve "${SERVE_ARGS[@]}" --log-level "${LOG_LEVEL}" /config &
-    SERVE_PID=$!
-    wait "${SERVE_PID}"
-    RC=$?
-    if [ -f /tmp/t3-restart-requested ]; then
-        rm -f /tmp/t3-restart-requested
-        bashio::log.info "Restart requested from the status page; restarting server"
-        continue
-    fi
-    bashio::log.warning "t3 serve exited with code ${RC}; restarting in 5s"
-    sleep 5
-done
+# The manager gates a new runtime, restores failed trials, and supervises ordinary
+# crashes without rechecking for updates. It starts ingress after trial activation.
+exec node /opt/t3code/runtime-manager.mjs serve "${SERVE_ARGS[@]}" --log-level "${LOG_LEVEL}" /config
