@@ -145,3 +145,7 @@ with tempfile.TemporaryDirectory(prefix="t3ha-smoke-") as temporary:
         subprocess.run(["docker", "rm", "-f", invalid], check=False, capture_output=True)
         subprocess.run(["docker", "rm", "-f", supervisor], check=False, capture_output=True)
         docker("network", "rm", network, capture_output=True)
+        # The add-on runs as root and creates private directories such as
+        # /data/t3-updates. Open them up so the runner can delete the fixture.
+        subprocess.run(["docker", "run", "--rm", "-v", f"{root}:/fixture", "--entrypoint", "chmod",
+                        image, "-R", "a+rwX", "/fixture"], check=False, capture_output=True)
