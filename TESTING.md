@@ -26,17 +26,17 @@ must still select Debian and complete successfully:
 docker buildx build t3code \
   --file t3code/Dockerfile \
   --platform linux/amd64 --pull \
-  --build-arg BUILD_VERSION=0.1.13 \
+  --build-arg BUILD_VERSION=0.1.14 \
   --build-arg BUILD_ARCH=amd64 \
   --build-arg BUILD_FROM=ghcr.io/home-assistant/base:latest \
-  -t t3code-ha:0.1.13-amd64
+  -t t3code-ha:0.1.14-amd64
 ```
 
 Check the provider versions, `t3 serve --help`, and `ha-mcp --help` inside the
 container before using credentials. Run the HTTP regression tests on Node 22 in
 the container as well.
 
-Run `python3 tests/container-smoke.py t3code-ha:0.1.13-amd64` to verify
+Run `python3 tests/container-smoke.py t3code-ha:0.1.14-amd64` to verify
 full startup, real TCP-peer filtering, and the MCP initialization and tool-list
 handshake. The test creates an isolated Docker network, a mock Supervisor, and
 temporary configuration files. The test calls no device tools and uses no real
@@ -74,3 +74,26 @@ agent task. With MCP enabled, verify a read-only entity query before allowing
 configuration edits or service calls. Device actions, provider authentication,
 and real Home Assistant API requests require a live installation and are not
 established by local container tests.
+
+## Persistent updater regression tests
+
+`node --test tests/*.test.mjs` also exercises release staging for both architecture
+asset names, checksums, incompatible preflight/protocol, disabled updates, offline
+checks, failed downloads, snapshot failure, failed or hung initial startup,
+interrupted migration and restore, selection after container-local state is lost,
+shared command routing, and crash relaunch without another update check. Fixtures
+use tiny local archives and fake T3 executables; architecture cases verify asset
+selection, not execution of native ARM64 or x64 T3 binaries.
+
+The container smoke test disables automatic updates deliberately so the existing
+startup/MCP/security checks remain deterministic against pinned T3 0.1.6. CI runs
+all Node tests and CLI help/version checks in both native architecture images.
+For a release, also use a disposable `/data` volume to test real GitHub updates,
+restart with `auto_update_t3: false`, replace the container using the same volume,
+and confirm `t3 --version` retains the installed version. Never reuse production
+credentials or Home Assistant mounts for that check.
+
+## Validation of the 0.1.14 development change
+
+Current results and untested checks are recorded in `VALIDATION.md`. Historical
+0.1.13 results in INSTALL-LOCAL.md do not establish validation of this change.

@@ -1,3 +1,12 @@
+## 0.1.14
+
+- Check for stable T3 updates once at add-on startup, enabled by default through `auto_update_t3`.
+- Materialize the pinned fallback executable in the image so first offline startup does not require the npm launcher to download it again.
+- Keep checksummed T3 runtimes in persistent storage, separate from the pinned provider CLIs and Node.js.
+- Stage updates, snapshot T3 data, and require upstream protocol-3 startup preparation before activation. Restore data and the previous runtime if a trial fails or is interrupted.
+- Route every T3 invocation through one selection, including the management panel and T3 Connect. Retain the selected version when automatic updates are disabled.
+- Add update, persistence, timeout, and rollback regression tests and document recovery limits.
+
 ## 0.1.13
 
 - Show the Codex device code printed on a separate terminal line, including ANSI-colored and fragmented output.

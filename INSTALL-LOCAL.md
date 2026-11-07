@@ -48,15 +48,17 @@ from a previous start. Stop the add-on to prevent all agent access.
 The strict ingress check means direct requests from an SSH add-on to port 8099
 return HTTP 403. Use the sidebar panel for sign-in and management.
 
-Local builds do not automatically receive fixes from the original repository.
-Review and rebuild dependency updates periodically. Debian security packages
+Local builds check for stable T3 updates at startup by default. Set
+`auto_update_t3: false` to retain the selected version. Provider CLIs, Node.js,
+and other add-on dependencies still require reviewed source updates and a rebuild.
+See [operation and recovery](t3code/DOCS.md#t3-updates-and-recovery). Debian security packages
 remain updateable at build time; apt packages are not frozen to old versions.
 
 The Home Assistant documentation describes the
 [local installation process](https://contributors.home-assistant.io/apps/first-app/)
 and the [ingress security boundary](https://contributors.home-assistant.io/apps/guides/ingress/).
 
-## Verification of this local version
+## Previous validation of 0.1.13
 
 The ARM64 and x86-64 containers both built successfully. Both containers passed
 nine HTTP and device-login regression tests, full startup with a mock Supervisor,
@@ -74,3 +76,17 @@ Home Assistant CLI 5.6.0.
 
 A real Home Assistant installation, provider sign-ins, T3 Connect pairing,
 and authenticated device queries remain to be verified after installation.
+
+## Installing the 0.1.14 development version
+
+This version is prepared locally for review and has not been published. After
+review, back up the existing add-on including its data. To update the existing
+repository installation, approve publication, then use Home Assistant's add-on
+update workflow. Updating the same add-on keeps its `/data` directory.
+
+To test before publication, copy this development checkout's `t3code` directory
+into a new local add-on folder using the steps above. A local add-on has separate
+data and sign-ins. Keep the existing add-on stopped while testing against the
+same configuration. Check the startup log for `[t3-update] Selected` and either
+`Activated`, `No newer stable release`, or the reason the previous runtime was
+retained. See TESTING.md for the current validation limits.

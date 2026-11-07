@@ -45,6 +45,13 @@ The original Home Assistant access is preserved. Agents can write to `/config`,
 `/addons`, and `/share`, read `/ssl`, and use the Home Assistant Core administrator
 API, Supervisor manager API, and `ha` CLI to configure Home Assistant.
 
+T3 checks for a newer stable release at add-on startup and keeps installed versions
+under `/data/t3-updates`, independently of add-on releases. Set `auto_update_t3: false`
+to keep the selected version without further checks. The bundled T3 0.1.6 remains
+the initial fallback. Provider CLIs and the system Node.js remain pinned.
+Read [update operation and recovery](t3code/DOCS.md#t3-updates-and-recovery)
+before enabling this on valuable T3 history.
+
 See [t3code/DOCS.md](t3code/DOCS.md) for configuration and
 [TESTING.md](TESTING.md) for verification.
 
