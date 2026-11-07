@@ -164,9 +164,37 @@ export class RuntimeManager {
     await syncDir(path.dirname(this.home));
     const next = { ...s, rejected: p.version };
     delete next.pending;
+    delete next.previous;
+    delete next.snapshot;
     await this.save(next);
+    await this.cleanup(next);
     await this.select(next.active);
     return next;
+  }
+  async removeUnused(p) {
+    await fs.rm(p, { recursive: true, force: true });
+  }
+  async cleanup(s) {
+    // A pending journal owns its snapshot and both runtimes until rollback or
+    // commit has durably replaced it. Never infer completion from directory names.
+    if (s.pending) return;
+    const attempt = async action => {
+      try { await action(); }
+      catch { this.log('Cleanup failed; unused update files will be retried at next startup'); }
+    };
+    const sweep = async (dir, unused) => attempt(async () => {
+      let names;
+      try { names = await fs.readdir(dir); }
+      catch (error) { if (error.code === 'ENOENT') return; throw error; }
+      for (const name of names) {
+        if (unused(name)) await attempt(() => this.removeUnused(path.join(dir, name)));
+      }
+    });
+    await sweep(path.join(this.root, 'snapshots'), () => true);
+    await sweep(path.join(this.root, 'versions'), name =>
+      name.startsWith('.stage-') || /\.(stage|restore|failed)$/.test(name) || (stable(name) && name !== s.active && name !== s.requested));
+    await sweep(this.root, name => name === 'latest.json' || name.startsWith('.stage-') ||
+      /\.(stage|restore|failed)$/.test(name));
   }
   async latestVersion() {
     const meta = path.join(this.root, 'latest.json');
@@ -200,6 +228,17 @@ export class RuntimeManager {
     let s = await this.load();
     s = await this.rollback(s);
     await this.select(s.active);
+    if ('previous' in s || 'snapshot' in s) {
+      const next = { ...s };
+      delete next.previous; delete next.snapshot;
+      try { await this.save(next); }
+      catch {
+        this.log('Cleanup state could not be saved; retaining update files and selected runtime');
+        return s;
+      }
+      s = next;
+    }
+    await this.cleanup(s);
     const manual = s.requested !== undefined;
     if (!enabled && !manual) { this.log('Automatic updates disabled; retaining selected runtime'); return s; }
     let version, phase = 'Release check';
@@ -208,6 +247,7 @@ export class RuntimeManager {
       const current = s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active;
       if (!newer(version, current)) {
         if (manual) { delete s.requested; await this.save(s); }
+        await this.cleanup(s);
         this.log(`No newer stable release; retaining ${current}`); return s;
       }
       if (!manual && s.rejected === version) { this.log(`Skipping failed trial ${version}; retaining ${current}`); return s; }
@@ -231,14 +271,16 @@ export class RuntimeManager {
     } catch {
       // Never swallow journal/selection failure after a trial was recorded.
       if (s.pending) return this.rollback(s);
+      await this.cleanup(s);
       this.log(`${phase} failed or timed out; retaining selected runtime`);
       return s;
     }
   }
   async commit(s) {
-    const next = { active: s.pending.version, previous: s.active, snapshot: s.pending.id };
+    const next = { active: s.pending.version, ...(s.rejected ? { rejected: s.rejected } : {}) };
     await this.save(next);
-    this.log(`Activated ${next.active}; previous runtime ${next.previous} and data snapshot retained`);
+    await this.cleanup(next);
+    this.log(`Activated ${next.active}; trial recovery no longer needed`);
     return next;
   }
   start(version, args, pending) {
