@@ -47,7 +47,7 @@ Credentials are stored in the add-on's `/data` directory and survive restarts an
 | `git_init_config` | `false` | Run `git init` in `/config` on start if it is not a repository. T3 Code works best with git projects. |
 | `git_exclude_patterns` | HA data dirs, databases, logs, `custom_components/` | Patterns written to the repo-local `.git/info/exclude` of each project. T3 Code snapshots the whole working tree with `git add -A` before every turn and aborts after 30 seconds, so large untracked data must be excluded. Nothing is committed and your `.gitignore` is untouched. Remove `custom_components/` if you want agents' edits there covered by checkpoints. |
 | `git_auto_exclude_large` | `true` | At start, any untracked top-level directory with 500+ files or 50+ MB is added to the managed excludes automatically (logged as a notice). Turn off if you need such a directory covered by checkpoints. |
-| `auto_update_t3` | `true` | Check for a newer stable T3 release at add-on startup. Turning this off keeps your current version. The manual download button still works. |
+| `auto_update_t3` | `true` | Check for a newer stable T3 release at add-on startup. Turning this off keeps your current version. The manual update button still works. |
 | `enable_ha_mcp` | `true` | Configure the `ha-mcp` Home Assistant MCP server for Claude Code, Codex, and OpenCode. |
 | `log_level` | `info` | T3 Code server log level. |
 
@@ -102,30 +102,35 @@ or T3 Connect commands, the add-on checks GitHub's latest non-prerelease T3 rele
 It accepts only a stable `major.minor.patch` version newer than the current version.
 Set `auto_update_t3: false` in the add-on configuration and restart to disable
 checks. Disabling keeps the installed selection. It does not revert to the bundle.
-An update that you explicitly download with the panel button still installs at
-the next add-on restart.
+An update that you explicitly request with the panel button installs immediately
+and restarts T3, including when automatic updates are disabled.
 The management panel's restart button and automatic crash restarts use the current
 selection without checking again. Finish active work before restarting the add-on.
 
 ### Manual updates
 
-Open the T3 Code sidebar panel and press **Download T3 update**. The panel shows
-which T3 version is running, checks for the newest stable release, and downloads
-it if it is newer. Your current T3 session keeps running throughout the download.
-The panel reports failures without changing the running version. Pressing the
-button again while a download is in progress does not start a second download.
+Open the T3 Code sidebar panel and press **Update T3 now**. The panel checks for
+the newest stable T3 release. If one is available, the add-on downloads and checks
+it, stops T3, saves a recovery copy of T3's data, and starts the new version.
+There is no separate add-on restart step and no check for active sessions.
+Clicking the button means you are ready for T3 to restart immediately.
+If no newer release is available, T3 keeps running without a restart.
 
-When the panel says that the update is downloaded, finish your active tasks and
-restart the add-on from Home Assistant. The add-on then saves a recovery copy of
-T3's data and tries the downloaded version. If the new version cannot finish
-starting, the add-on restores the saved data and starts the previous version.
-The panel's existing **Restart server now** button does not install an update.
+If the download or compatibility check fails, T3 keeps running. If the new version
+fails to start, the add-on restores the saved data and starts the previous version.
+The panel shows progress and the result. Management commands pause while an update
+runs so they do not launch another T3 version during the switch. Clicking again
+while an update runs does not start a second update.
 
-Manual downloads work with `auto_update_t3: false`. That option disables automatic
-checks; it does not cancel an update you explicitly requested. A downloaded update
-survives container replacement and can be tried offline at the next add-on start.
-You can retry a version that previously failed by explicitly downloading it again.
-It is tried once per manual request, with the same startup checks and recovery.
+Manual updates work with `auto_update_t3: false`. That option disables automatic
+checks, while the button always lets you request an update. Automatic checks run
+only at add-on startup. Ordinary server crashes and the existing **Restart server
+now** button continue to restart the selected version without checking for updates.
+To retry a release that failed earlier, press **Update T3 now** again.
+
+A manual request is saved before T3 stops. If the container is replaced during an
+update, startup can recover that request or restore the saved data from a failed
+trial. It can use an already downloaded update offline.
 
 ### Installation details
 
@@ -164,7 +169,7 @@ staging, activation, fallback, and skipped failed trials. The updater does not l
 CLI output, credential values, or environment variables. Ordinary T3 and provider
 logs retain their existing behavior.
 
-Before startup allows a candidate T3 command to change persistent data, the updater
+Before allowing a candidate T3 command to change persistent data, the updater
 copies and flushes the complete `/data/t3code` directory and records a pending trial durably.
 The snapshot needs enough free storage for a complete copy, plus migration writes.
 Data symlinks cause the update to be skipped because their targets could escape
@@ -184,8 +189,8 @@ A failed or interrupted pending trial is stopped before the snapshot is restored
 The manager then selects the previous runtime. The snapshot, pending journal,
 and restore procedure survive container replacement. The failed version is
 recorded as `rejected` and skipped on subsequent starts until a newer release is
-published. To retry that exact version, use the manual download button and restart the
-add-on when you have finished your work. Do not delete the state file.
+published. To retry that exact version, press **Update T3 now** when you are ready for a
+restart. Do not delete the state file.
 
 ### Recovery limits
 
@@ -230,6 +235,5 @@ verifies standalone archives. The add-on reuses those archive and activation
 contracts, with container-owned persistent selection and a whole-directory snapshot.
 It does not run `t3 update`, which also manages host service/launcher state and does
 not own this add-on's startup loop. Remote update requests are rejected with an
-instruction that this add-on updates only at add-on startup. Use the add-on
-panel button to download an update for that restart. Do not run `t3 update`
+instruction to use **Update T3 now** in the Home Assistant add-on panel. Do not run `t3 update`
 or install a T3 background service inside the add-on.

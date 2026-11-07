@@ -50,8 +50,8 @@ return HTTP 403. Use the sidebar panel for sign-in and management.
 
 Local builds check for stable T3 updates at startup by default. Set
 `auto_update_t3: false` to stop automatic checks and retain the selected version.
-For manual updates, use **Download T3 update** in the sidebar panel, finish your
-work, then restart the add-on in Home Assistant. Provider CLIs, Node.js,
+For manual updates, press **Update T3 now** in the sidebar panel when you are
+ready to restart T3. The button installs the update and restarts T3 immediately. Provider CLIs, Node.js,
 and other add-on dependencies still require reviewed source updates and a rebuild.
 See [operation and recovery](t3code/DOCS.md#t3-updates-and-recovery). Debian security packages
 remain updateable at build time; apt packages are not frozen to old versions.

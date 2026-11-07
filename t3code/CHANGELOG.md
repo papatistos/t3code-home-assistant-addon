@@ -1,6 +1,6 @@
 ## 0.1.14
 
-- Add a manual **Download T3 update** button to the sidebar panel. It shows the running and downloaded versions, keeps sessions running, and installs the requested update at the next add-on restart, including when automatic updates are disabled.
+- Add an **Update T3 now** button to the sidebar panel. It downloads and installs a newer stable release and restarts T3 immediately, including when automatic updates are disabled. The click authorizes the restart without a session check.
 
 - Check for stable T3 updates once at add-on startup, enabled by default through `auto_update_t3`.
 - Materialize the pinned fallback executable in the image so first offline startup does not require the npm launcher to download it again.
