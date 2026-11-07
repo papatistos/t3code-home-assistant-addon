@@ -59,8 +59,8 @@ for (const arch of ['x64', 'arm64']) test(`stages and validates the ${arch} rele
   t.after(() => f.manager.stop(child));
   await f.manager.trial(child, s);
   assert.equal((await f.manager.load()).active, '0.1.7');
-  assert.equal((await f.manager.load()).previous, 'bundled');
-  assert.equal(await fs.readFile(path.join(f.manager.snapshot(s.pending), 'state'), 'utf8'), 'original');
+  assert.equal((await f.manager.load()).previous, undefined);
+  await assert.rejects(fs.access(f.manager.snapshot(s.pending)), { code: 'ENOENT' });
   await f.manager.stop(child);
 });
 
@@ -257,15 +257,15 @@ test('offline startup keeps an established persistent version and bounds the rel
   assert.match(f.logs.at(-1), /Release check failed or timed out/);
 });
 
-test('a failed later update retains the earlier recovery snapshot reference', async t => {
+test('a failed later update drops obsolete recovery references', async t => {
   const f = await fixture(t);
   await f.manager.prepare(true);
   const trial = await f.manager.load();
   trial.previous = '0.1.5'; trial.snapshot = 'earlier-snapshot-id';
   await f.manager.save(trial);
   const restored = await f.manager.rollback(trial);
-  assert.equal(restored.previous, '0.1.5');
-  assert.equal(restored.snapshot, 'earlier-snapshot-id');
+  assert.equal(restored.previous, undefined);
+  assert.equal(restored.snapshot, undefined);
   assert.equal(restored.pending, undefined);
 });
 
@@ -339,8 +339,15 @@ setTimeout(()=>process.send({type:'apply-t3-update',id:'manual-test',version:'0.
 setInterval(()=>{},1000);
 `);
   const supervisor=path.join(f.dir,'manual-supervisor.mjs');
-  await fs.writeFile(supervisor, `import { RuntimeManager } from ${JSON.stringify(modulePath)};
+  await fs.writeFile(supervisor, `import { readFileSync } from 'node:fs';
+import { RuntimeManager } from ${JSON.stringify(modulePath)};
 const manager=new RuntimeManager(${JSON.stringify(f.options)});
+const copyData=manager.copyData.bind(manager);
+manager.copyData=async (source,destination)=>{
+  if(destination.endsWith('.stage') && fsState(source)!=='shutdown flushed') throw new Error('shutdown write not in snapshot');
+  await copyData(source,destination);
+};
+function fsState(source){return readFileSync(source+'/state','utf8');}
 manager.fetch=()=>{throw new Error('download already installed; no network allowed');};
 await manager.serve(['serve'],{restartDelay:10,panelCommand:[process.execPath,${JSON.stringify(panel)}]});`);
   const proc=spawn(process.execPath,[supervisor],{stdio:['ignore','pipe','pipe']});
@@ -358,8 +365,158 @@ await manager.serve(['serve'],{restartDelay:10,panelCommand:[process.execPath,${
   const s=await f.manager.load();
   assert.equal(result.ok,behavior==='ready');
   assert.equal(s.active,behavior==='ready'?'0.1.7':'bundled');
-  const snapshot=behavior==='ready'?path.join(f.manager.root,'snapshots',s.snapshot):path.join(f.manager.root,'snapshots',(await fs.readdir(path.join(f.manager.root,'snapshots'))).find(x=>!x.includes('.')));
-  assert.equal(await fs.readFile(path.join(snapshot,'state'),'utf8'),'shutdown flushed');
+  assert.deepEqual(await fs.readdir(path.join(f.manager.root,'snapshots')), []);
   if(behavior==='exit') assert.equal(await fs.readFile(path.join(f.home,'state'),'utf8'),'shutdown flushed');
   proc.kill('SIGTERM');await once(proc,'exit');
+});
+
+
+async function put(p, value = 'leftover') {
+  await fs.mkdir(path.dirname(p), { recursive: true });
+  await fs.writeFile(p, value);
+}
+async function gone(p) {
+  await assert.rejects(fs.access(p), { code: 'ENOENT' });
+}
+
+test('activation saves the new selection before removing snapshot and old runtimes', async t => {
+  const f = await fixture(t);
+  await put(path.join(f.manager.root, 'versions', '0.1.5', 't3'));
+  await f.manager.save({ active: '0.1.5', rejected: '0.1.4' });
+  const s = await f.manager.prepare(true);
+  const remove = f.manager.removeUnused.bind(f.manager);
+  f.manager.removeUnused = async p => {
+    assert.deepEqual(await f.manager.load(), { active: '0.1.7', rejected: '0.1.4' });
+    await remove(p);
+  };
+  await f.manager.commit(s);
+  await gone(f.manager.snapshot(s.pending));
+  assert.deepEqual(await fs.readdir(path.join(f.manager.root, 'versions')), ['0.1.7']);
+  assert.equal(await fs.readFile(f.manager.bundled, 'utf8'), `#!${process.execPath}\nconsole.log('0.1.6');\n`);
+});
+
+test('rollback saves restored state before removing trial snapshot and restore and failed copies', async t => {
+  const f = await fixture(t);
+  const s = await f.manager.prepare(true);
+  await fs.writeFile(path.join(f.home, 'state'), 'broken');
+  const snapshot = f.manager.snapshot(s.pending);
+  const remove = f.manager.removeUnused.bind(f.manager);
+  f.manager.removeUnused = async p => {
+    assert.equal((await f.manager.load()).pending, undefined);
+    assert.equal((await f.manager.load()).rejected, '0.1.7');
+    assert.equal(await fs.readFile(path.join(f.home, 'state'), 'utf8'), 'original');
+    await remove(p);
+  };
+  await f.manager.rollback(s);
+  for (const p of [snapshot, `${snapshot}.restore`, `${snapshot}.failed`, path.dirname(f.manager.executable('0.1.7'))]) await gone(p);
+});
+
+test('startup sweeps interrupted copies and obsolete references while preserving active data', async t => {
+  const f = await fixture(t);
+  await f.manager.commit(await f.manager.prepare(true));
+  await f.manager.save({ active: '0.1.7', previous: 'bundled', snapshot: 'old', rejected: '0.1.8' });
+  const leftovers = [
+    'snapshots/old/state', 'snapshots/partial.stage/state', 'snapshots/old.restore/state',
+    'snapshots/old.failed/state', 'versions/.stage-abandoned/archive', 'versions/0.1.5/t3',
+    'versions/0.1.8/t3', 'versions/partial.stage/archive', 'latest.json',
+    '.stage-interrupted/archive', 'old.stage/state', 'old.restore/state', 'old.failed/state',
+  ];
+  for (const name of leftovers) await put(path.join(f.manager.root, name));
+  await f.manager.prepare(false);
+  for (const name of leftovers) await gone(path.join(f.manager.root, name));
+  assert.deepEqual(await f.manager.load(), { active: '0.1.7', rejected: '0.1.8' });
+  assert.equal(await fs.readFile(path.join(f.home, 'state'), 'utf8'), 'original');
+  assert.deepEqual(await fs.readdir(path.join(f.manager.root, 'versions')), ['0.1.7']);
+});
+
+test('cleanup leaves every file intact while a trial is pending', async t => {
+  const f = await fixture(t);
+  const s = await f.manager.prepare(true);
+  const snapshot = f.manager.snapshot(s.pending);
+  await put(`${snapshot}.restore/state`);
+  await put(`${snapshot}.failed/state`);
+  await f.manager.cleanup(s);
+  assert.equal(await fs.readFile(path.join(snapshot, 'state'), 'utf8'), 'original');
+  for (const p of [`${snapshot}.restore/state`, `${snapshot}.failed/state`, f.manager.executable(s.pending.version), f.manager.bundled]) await fs.access(p);
+  assert.deepEqual(await f.manager.load(), s);
+});
+
+for (const action of ['commit', 'rollback']) test(`startup finishes cleanup after a crash following ${action} state save`, async t => {
+  const f = await fixture(t);
+  const s = await f.manager.prepare(true);
+  await fs.writeFile(path.join(f.home, 'state'), 'new history');
+  f.manager.cleanup = async () => { throw new Error('simulated power cut before deletion'); };
+  await assert.rejects(f.manager[action](s), /simulated power cut/);
+  await fs.access(f.manager.snapshot(s.pending));
+  const replacement = new RuntimeManager(f.options);
+  await replacement.prepare(false);
+  assert.equal((await replacement.load()).active, action === 'commit' ? '0.1.7' : 'bundled');
+  assert.equal(await fs.readFile(path.join(f.home, 'state'), 'utf8'), action === 'commit' ? 'new history' : 'original');
+  await gone(f.manager.snapshot(s.pending));
+  await fs.access(replacement.executable((await replacement.load()).active));
+});
+
+for (const action of ['commit', 'rollback']) test(`${action} keeps recovery files if durable state save fails`, async t => {
+  const f = await fixture(t);
+  const s = await f.manager.prepare(true);
+  f.manager.save = async () => { throw new Error('state write failed'); };
+  await assert.rejects(f.manager[action](s), /state write failed/);
+  assert.deepEqual(await f.manager.load(), s);
+  await fs.access(f.manager.snapshot(s.pending));
+  await fs.access(f.manager.executable(s.pending.version));
+  const replacement = new RuntimeManager(f.options);
+  await replacement.prepare(false);
+  assert.equal(await fs.readFile(path.join(f.home, 'state'), 'utf8'), 'original');
+});
+
+test('cleanup deletion failure is logged, does not block startup, and is retried', async t => {
+  const f = await fixture(t);
+  const blocked = path.join(f.manager.root, 'snapshots', 'old');
+  await put(path.join(blocked, 'state'));
+  await put(path.join(f.manager.root, 'versions', '0.1.5', 't3'));
+  const remove = f.manager.removeUnused.bind(f.manager);
+  f.manager.removeUnused = async p => { if (p === blocked) throw new Error('permission denied: secret'); await remove(p); };
+  await f.manager.prepare(false);
+  await fs.access(blocked);
+  await gone(path.join(f.manager.root, 'versions', '0.1.5'));
+  assert.match(f.logs.join('\n'), /Cleanup failed/);
+  assert.doesNotMatch(f.logs.join('\n'), /secret|permission denied/);
+  assert.equal((await fs.readFile(f.manager.selection, 'utf8')).trim(), f.manager.bundled);
+  await new RuntimeManager(f.options).prepare(false);
+  await gone(blocked);
+});
+
+test('cleanup listing failure does not block startup or other cleanup', async t => {
+  const f = await fixture(t);
+  await put(path.join(f.manager.root, 'snapshots'));
+  await put(path.join(f.manager.root, 'latest.json'));
+  await f.manager.prepare(false);
+  await gone(path.join(f.manager.root, 'latest.json'));
+  assert.match(f.logs.join('\n'), /Cleanup failed/);
+});
+
+
+test('failure to save obsolete recovery references does not block startup or delete copies', async t => {
+  const f = await fixture(t);
+  await fs.mkdir(f.manager.root);
+  const state = { active: 'bundled', previous: '0.1.5', snapshot: 'old' };
+  await f.manager.save(state);
+  await put(path.join(f.manager.root, 'snapshots', 'old', 'state'));
+  f.manager.save = async () => { throw new Error('disk full'); };
+  await f.manager.prepare(false);
+  assert.deepEqual(await f.manager.load(), state);
+  await fs.access(path.join(f.manager.root, 'snapshots', 'old', 'state'));
+  assert.equal((await fs.readFile(f.manager.selection, 'utf8')).trim(), f.manager.bundled);
+  assert.match(f.logs.join('\n'), /Cleanup state could not be saved/);
+});
+
+
+test('legacy home runtime stays in snapshots and survives startup cleanup', async t => {
+  const f = await fixture(t);
+  await put(path.join(f.home, 'runtime', 'versions', '0.1.6', 't3'), 'legacy runtime');
+  const s = await f.manager.prepare(true);
+  assert.equal(await fs.readFile(path.join(f.manager.snapshot(s.pending), 'runtime', 'versions', '0.1.6', 't3'), 'utf8'), 'legacy runtime');
+  await f.manager.commit(s);
+  await f.manager.prepare(false);
+  assert.equal(await fs.readFile(path.join(f.home, 'runtime', 'versions', '0.1.6', 't3'), 'utf8'), 'legacy runtime');
 });
