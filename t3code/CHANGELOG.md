@@ -1,5 +1,8 @@
 ## 0.1.14
 
+- Clean up trial snapshots, failed and temporary copies, and obsolete downloaded T3 versions automatically after recovery is no longer needed. Save the completed state before deletion and retry interrupted cleanup at startup without blocking startup on cleanup errors.
+- Use a pre-update Home Assistant add-on backup for recovery after activation. Pending trial snapshots remain included in backups.
+
 - Add an **Update T3 now** button to the sidebar panel. It downloads and installs a newer stable release and restarts T3 immediately, including when automatic updates are disabled. The click authorizes the restart without a session check.
 
 - Check for stable T3 updates once at add-on startup, enabled by default through `auto_update_t3`.

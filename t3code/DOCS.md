@@ -148,9 +148,9 @@ Persistent files are separate from the provider CLIs:
 
 | Path | Purpose |
 | --- | --- |
-| `/data/t3-updates/versions/<version>` | Validated immutable T3 archive contents. |
-| `/data/t3-updates/state.json` | Active version, previous version, manually requested update, and pending trial or retained snapshot ID. |
-| `/data/t3-updates/snapshots/<id>` | Private copy of `/data/t3code` before the trial. Treat it as credential-bearing data. |
+| `/data/t3-updates/versions/<version>` | Active T3 archive contents, plus a downloaded update while it is waiting to be tried. |
+| `/data/t3-updates/state.json` | Active version, manually requested update, pending trial, and last rejected release. |
+| `/data/t3-updates/snapshots/<id>` | Private copy of `/data/t3code` while a trial is pending. Deleted after activation or completed restore. Treat it as credential-bearing data. |
 | `/run/t3-executable` | Container-local selection used by `/usr/local/bin/t3` for all invocations. Recreated on startup. |
 | `/opt/t3code-bundled/runtime/versions/0.1.6/t3` | Pinned initial fallback, downloaded and validated while building the image. |
 
@@ -202,23 +202,38 @@ outside `/data/t3code`, workspace files, and external side effects are outside t
 snapshot. A future upstream bug that performs work before its activation gate
 would be outside the manager's guarantees.
 
-For a problem after activation, stop the add-on and make a full Home Assistant
-backup before recovery. Prefer restoring a complete pre-update add-on backup.
-For manual recovery with offline access to the add-on data, preserve the current
-`/data/t3code` and `state.json`, then restore the matching retained snapshot to
-`/data/t3code` and set `active` to the recorded `previous` version. Remove `pending`
-if present and set `rejected` to the failed active version. Set `auto_update_t3`
-to `false` before restarting. Confirm that the chosen runtime still exists. Do
-not change only the executable selection or delete provider credentials. Restoring
-a pre-update snapshot discards T3 history written after that snapshot. If the
-snapshot or previous runtime is missing, use a complete backup rather than guess.
+Recovery after an activated update means restoring a Home Assistant backup of the
+add-on taken before updating. Take that backup before requesting an update.
+Restoring the backup discards T3 history written after the backup. There is no
+retained update snapshot for manual recovery after activation.
 
-The updater retains previous runtimes and snapshots and does not prune them
-automatically. Monitor `/data` usage. With the add-on stopped and a complete backup
-available, old snapshots, `.stage` remnants, `.restore` remnants, `.failed` copies,
-and unreferenced version directories can be removed. Keep the active and previous
-runtimes, the snapshot named in `state.json`, and every snapshot referenced by a
-pending trial. Never remove a pending trial's recovery files to free space.
+### Automatic cleanup
+
+After activation, the manager first saves and flushes the new active version,
+then deletes the trial snapshot and obsolete downloaded versions. After a failed
+trial, it first restores and flushes T3's data and saves the restored selection,
+then deletes the snapshot, failed data copy, restore copy, and rejected runtime.
+The rejected release remains recorded so automatic updates do not retry it.
+The state no longer retains `previous` or `snapshot` once recovery is finished.
+
+At startup, after recovering any interrupted trial, the manager removes unused
+snapshots, `.stage-*` directories, `.stage`, `.restore`, and `.failed` copies,
+`latest.json`, and obsolete downloaded versions. It keeps the active version and
+any manually downloaded update waiting to be tried, including for an offline
+restart. The bundled copy under `/opt` is never removed. While a trial is pending,
+cleanup preserves its recovery files and both runtimes. Home Assistant backups
+must include pending snapshots so a restored pending trial can recover.
+
+If power is lost after the state is saved but before deletion finishes, the next
+startup finishes cleanup using the saved state. A cleanup error is logged and
+retried at startup. It does not prevent T3 from starting.
+
+The legacy `/data/t3code/runtime` directory is left intact and remains included
+in snapshots. Upstream 0.1.6 and 0.1.7 still contain home-relative
+`runtime/versions` management in their service and update commands. The add-on
+uses direct standalone executables, but the source review did not establish that
+this directory is unused by the standalone CLI. It is therefore not deleted
+or excluded from recovery copies.
 
 ### Upstream basis
 
