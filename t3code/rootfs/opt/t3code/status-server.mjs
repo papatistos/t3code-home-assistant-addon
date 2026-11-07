@@ -9,6 +9,7 @@ import os from "node:os";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { spawn, execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { RuntimeManager } from "./runtime-manager.mjs";
 
 const PORT = 8099;
@@ -241,21 +242,40 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-export function createUpdateController(manager = new RuntimeManager()) {
+export function applyManualUpdate(version, host = process) {
+  return new Promise((resolve, reject) => {
+    if (!host.connected || !host.send) return reject(new Error("Update supervisor unavailable"));
+    const id = randomUUID();
+    const cleanup = () => { host.off("message", receive); host.off("disconnect", disconnected); };
+    const disconnected = () => { cleanup(); reject(new Error("Update supervisor disconnected")); };
+    const receive = m => {
+      if (m?.type !== "t3-update-result" || m.id !== id) return;
+      cleanup(); resolve(m.message);
+    };
+    host.on("message", receive); host.once("disconnect", disconnected);
+    host.send({type:"apply-t3-update", id, version}, error => { if (error) disconnected(); });
+  });
+}
+
+export function createUpdateController(manager = new RuntimeManager(), applyUpdate = applyManualUpdate) {
   let job = null;
-  let message = "Check for a newer T3 version and download it for the next add-on restart.";
+  let message = "Install the newest stable T3 version and restart T3 immediately.";
   return {
+    isBusy() { return job !== null; },
     async status() {
       const s = await manager.load();
       return { current: s.active === "bundled" ? "0.1.6" : s.active,
-        queued: s.requested || null, busy: job !== null, message };
+        queued: s.pending?.version || s.requested || null, busy: job !== null, message };
     },
     start() {
       if (job) return;
-      message = "Checking for a T3 update and downloading it if available. Your current session will keep running.";
+      message = "Checking for a T3 update. If one is available, T3 will install it and restart now.";
       job = manager.downloadUpdate()
-        .then(result => { message = result.message; })
-        .catch(() => { message = "The update could not be downloaded or checked. Your running T3 version is unchanged. You can try again."; })
+        .then(async result => {
+          message = result.message;
+          if (result.version) message = await applyUpdate(result.version);
+        })
+        .catch(() => { message = "The update could not be completed. Check the add-on log for the running version and recovery details."; })
         .finally(() => { job = null; });
     },
   };
@@ -287,6 +307,9 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
         if (Object.keys(body).length) return json(res, 400, { error: "No update parameters are accepted" });
         updates.start();
         return json(res, 202, await updates.status());
+      }
+      if (path.startsWith("/api/") && updates.isBusy?.()) {
+        return json(res, 409, { error: "T3 is updating. Management commands will be available when the update finishes." });
       }
       if (req.method === "GET" && path === "/api/status") {
         return json(res, 200, {
@@ -384,7 +407,7 @@ const pending = {};
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function row(l,v){ return '<div class="row"><span>'+l+'</span><span class="'+(v?"ok":"bad")+'">'+(v?"yes":"no")+'</span></div>'; }
 function saveInputs(){ for (const n of ["t3","claude","codex"]) { const e=document.getElementById("code-"+n); if(e) pending[n]=e.value; } }
-async function refresh(){ try { st = await api("/api/status"); saveInputs(); renderConnect(); renderProviders(); await refreshUpdate(); } catch (e) { document.getElementById("connect").textContent = "Status server unreachable: " + e; } }
+async function refresh(){ try { st = await api("/api/status"); if (st.error) { document.getElementById("connect").textContent = st.error; document.getElementById("providers").innerHTML = ""; } else { saveInputs(); renderConnect(); renderProviders(); } await refreshUpdate(); } catch (e) { document.getElementById("connect").textContent = "Status server unreachable: " + e; } }
 
 function flowHtml(name, s){
   if (s.codeEntry === "browser") {
@@ -463,9 +486,9 @@ async function refreshUpdate(){
     if (u.error) throw new Error(u.error);
     el.innerHTML = '<h2>T3 updates</h2><p>Running T3 '+esc(u.current)+'</p>' +
       '<p>'+esc(u.message)+'</p>' +
-      (u.queued ? '<p class="ok">T3 '+esc(u.queued)+' is downloaded. Finish your work, then restart the add-on in Home Assistant to install it.</p>' : '') +
-      '<button onclick="downloadUpdate()" '+(u.busy?'disabled':'')+'>'+(u.busy?'Checking and downloading…':'Download T3 update')+'</button>' +
-      '<p class="muted">This button keeps T3 running. Installation happens at the next add-on restart, even if automatic updates are off. The server restart button above does not install updates.</p>';
+      (u.queued ? '<p class="ok">T3 '+esc(u.queued)+' is being prepared for installation.</p>' : '') +
+      '<button onclick="downloadUpdate()" '+(u.busy?'disabled':'')+'>'+(u.busy?'Updating T3…':'Update T3 now')+'</button>' +
+      '<p class="muted">This button installs the update and restarts T3 immediately, even if automatic updates are off.</p>';
   } catch { el.textContent = 'T3 update information is unavailable. Your running version is unchanged.'; }
 }
 async function downloadUpdate(){ await post("/api/t3-update"); await refreshUpdate(); }

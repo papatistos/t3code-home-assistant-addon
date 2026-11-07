@@ -1,4 +1,4 @@
-// Container startup owns updates. Never call prepare from the server restart loop.
+// Automatic checks run only at container startup. Manual requests explicitly trigger an update.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createReadStream } from 'node:fs';
@@ -191,8 +191,8 @@ export class RuntimeManager {
     const latest = await this.load();
     if (latest.pending || latest.active !== s.active) throw new Error('selection changed during download');
     await this.save({ ...latest, requested: version });
-    this.log(`Manual download ${version} ready for the next add-on restart; running version unchanged`);
-    return { message: `T3 ${version} is downloaded. Finish your work, then restart the add-on in Home Assistant to install it.` };
+    this.log(`Manual update ${version} downloaded; ready to stop T3 and install`);
+    return { version, message: `T3 ${version} is downloaded. Installing and restarting T3 now.` };
   }
   async prepare(enabled) {
     await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
@@ -287,13 +287,26 @@ export class RuntimeManager {
       child.on('message', message); child.once('exit', exited); child.once('error', failed);
     });
   }
-  async serve(args, { status = true, restartDelay = 5000 } = {}) {
-    let s = await this.load(), child, panel;
+  async serve(args, { status = true, restartDelay = 5000, panelCommand = [process.execPath, '/opt/t3code/status-server.mjs'] } = {}) {
+    let s = await this.load(), child, panel, manualRequest, applying, manualStop;
+    const reply = (request, ok) => {
+      if (panel?.connected) panel.send({ type: 't3-update-result', id: request.id, ok,
+        message: ok ? `T3 ${request.version} is installed and restarted.` : 'The update failed. The previous T3 version has been retained or restored.' }, () => {});
+    };
     let stopping = false;
     const shutdown = () => { stopping = true; void (child && this.stop(child)); if (panel) panel.kill('SIGTERM'); };
     process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
     try {
       while (!stopping) {
+        if (manualRequest) {
+          applying = manualRequest; manualRequest = null;
+          await manualStop;
+          if (stopping) break;
+          // The click authorizes an immediate restart. Snapshot only after the old
+          // server and its descendants have stopped; never infer session activity.
+          s = await this.prepare(false);
+          if (!s.pending) { reply(applying, false); applying = null; }
+        }
         const version = s.pending?.version ?? s.active;
         const pending = s.pending && { ...s.pending, fromVersion: s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active };
         this.log(`Starting: t3 ${args[0]} (${version})`);
@@ -302,7 +315,7 @@ export class RuntimeManager {
         const ended = new Promise(resolve => { child.once('exit', resolve); child.once('error', resolve); });
         child.on('message', m => {
           if (m?.type === 'request-update' && child.connected) child.send({
-            type: 'update-rejected', reason: 'This add-on updates only at add-on startup.' });
+            type: 'update-rejected', reason: 'Use Update T3 now in the Home Assistant add-on panel.' });
         });
         if (s.pending) {
           try { await this.trial(child, s); s = await this.load(); }
@@ -311,18 +324,29 @@ export class RuntimeManager {
             // Re-read durable state: commit may have succeeded before IPC failed.
             s = await this.load();
             if (s.pending) s = await this.rollback(s);
+            if (applying) { reply(applying, s.active === applying.version); applying = null; }
             if (stopping) break;
             continue;
           }
         }
-        if (status && !panel && !stopping) panel = spawn(process.execPath, ['/opt/t3code/status-server.mjs'], { stdio: 'inherit' });
+        if (applying) { reply(applying, s.active === applying.version); applying = null; }
+        if (status && !panel && !stopping) {
+          panel = spawn(panelCommand[0], panelCommand.slice(1), { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+          panel.on('message', m => {
+            if (m?.type !== 'apply-t3-update' || !stable(m.version) || typeof m.id !== 'string' || m.id.length > 100 || stopping) return;
+            if (manualRequest || applying) { reply(m, false); return; }
+            manualRequest = m;
+            manualStop = this.stop(child);
+          });
+        }
         await ended;
         if (stopping) break;
+        if (manualRequest) continue;
         await fs.rm('/tmp/t3-restart-requested', { force: true });
         this.log('Server exited; restarting selected runtime without an update check');
         await new Promise(resolve => setTimeout(resolve, restartDelay));
       }
-    } finally { process.off('SIGTERM', shutdown); process.off('SIGINT', shutdown); if (panel) panel.kill('SIGTERM'); }
+    } finally { process.off('SIGTERM', shutdown); process.off('SIGINT', shutdown); if (panel) panel.kill('SIGTERM'); if (child) await this.stop(child); }
   }
 }
 

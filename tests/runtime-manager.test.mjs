@@ -276,7 +276,8 @@ test('manual download leaves running selection and data untouched and creates no
   f.manager.copyData = () => assert.fail('manual download must not copy live data');
   f.manager.start = () => assert.fail('manual download must not start or restart T3');
   const result = await f.manager.downloadUpdate();
-  assert.match(result.message, /restart the add-on in Home Assistant/);
+  assert.equal(result.version, '0.1.7');
+  assert.match(result.message, /Installing and restarting T3 now/);
   assert.equal(await fs.readFile(f.manager.selection,'utf8'), selected);
   assert.equal(await fs.readFile(path.join(f.home,'state'),'utf8'),'original');
   const s = await f.manager.load();
@@ -316,4 +317,49 @@ test('manual check reports no newer release without changing the selection', asy
   assert.match(result.message,/0.1.7 is up to date/);
   assert.equal((await f.manager.load()).requested,undefined);
   assert.equal((await f.manager.load()).active,'0.1.7');
+});
+
+for (const behavior of ['ready','exit']) test(`manual update supervisor stops T3, snapshots stopped data, and ${behavior === 'ready' ? 'activates immediately' : 'restores after failed startup'}`, async t => {
+  const f=await fixture(t,{behavior});
+  await f.manager.prepare(false);
+  await f.manager.downloadUpdate();
+  // Record a final write during graceful shutdown. The backup must contain it.
+  await fs.writeFile(f.manager.bundled, `#!${process.execPath}
+import fs from 'node:fs';
+if(process.argv[2] === '--version') console.log('0.1.6');
+else {
+  process.on('SIGTERM',()=>{fs.writeFileSync(process.env.T3CODE_HOME+'/state','shutdown flushed');process.exit(0);});
+  setInterval(()=>{},1000);
+}
+`, {mode:0o700});
+  const panel=path.join(f.dir,'manual-panel.mjs');
+  await fs.writeFile(panel, `
+process.on('message',m=>{if(m.type === 't3-update-result') console.log('MANUAL_RESULT '+JSON.stringify(m));});
+setTimeout(()=>process.send({type:'apply-t3-update',id:'manual-test',version:'0.1.7'}),250);
+setInterval(()=>{},1000);
+`);
+  const supervisor=path.join(f.dir,'manual-supervisor.mjs');
+  await fs.writeFile(supervisor, `import { RuntimeManager } from ${JSON.stringify(modulePath)};
+const manager=new RuntimeManager(${JSON.stringify(f.options)});
+manager.fetch=()=>{throw new Error('download already installed; no network allowed');};
+await manager.serve(['serve'],{restartDelay:10,panelCommand:[process.execPath,${JSON.stringify(panel)}]});`);
+  const proc=spawn(process.execPath,[supervisor],{stdio:['ignore','pipe','pipe']});
+  t.after(()=>proc.kill('SIGTERM'));
+  let output='';
+  const result=await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('manual update did not finish: '+output)),7000);
+    proc.stdout.on('data',chunk=>{
+      output+=chunk;
+      const match=/MANUAL_RESULT (\{[^\n]+\})/.exec(output);
+      if(match){clearTimeout(timer);resolve(JSON.parse(match[1]));}
+    });
+    proc.once('error',reject);
+  });
+  const s=await f.manager.load();
+  assert.equal(result.ok,behavior==='ready');
+  assert.equal(s.active,behavior==='ready'?'0.1.7':'bundled');
+  const snapshot=behavior==='ready'?path.join(f.manager.root,'snapshots',s.snapshot):path.join(f.manager.root,'snapshots',(await fs.readdir(path.join(f.manager.root,'snapshots'))).find(x=>!x.includes('.')));
+  assert.equal(await fs.readFile(path.join(snapshot,'state'),'utf8'),'shutdown flushed');
+  if(behavior==='exit') assert.equal(await fs.readFile(path.join(f.home,'state'),'utf8'),'shutdown flushed');
+  proc.kill('SIGTERM');await once(proc,'exit');
 });

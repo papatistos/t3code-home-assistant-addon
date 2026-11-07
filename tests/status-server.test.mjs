@@ -4,7 +4,7 @@ import { once, EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { Script, createContext } from "node:vm";
-import { createStatusServer, createUpdateController, isIngressRequest, parseLoginOutput } from "../t3code/rootfs/opt/t3code/status-server.mjs";
+import { createStatusServer, createUpdateController, applyManualUpdate, isIngressRequest, parseLoginOutput } from "../t3code/rootfs/opt/t3code/status-server.mjs";
 
 async function serve(t, options) {
   const server = createStatusServer(options);
@@ -216,7 +216,7 @@ test('manual update controller runs one download at a time and reports failures 
   failure.start();await new Promise(resolve=>setImmediate(resolve));
   const status=await failure.status();
   assert.equal(status.queued,'0.1.8');
-  assert.match(status.message,/running T3 version is unchanged/);
+  assert.match(status.message,/could not be completed/);
   assert.doesNotMatch(JSON.stringify(status),/credential|private/);
 });
 
@@ -231,10 +231,49 @@ test('manual update button explains when installation happens and escapes displa
   });
   new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(context);
   await context.refreshUpdate();
-  assert.match(html,/restart the add-on in Home Assistant/);
+  assert.match(html,/restarts T3 immediately/);
+  assert.doesNotMatch(html,/next add-on restart|Finish your work/);
   assert.match(html,/even if automatic updates are off/);
-  assert.match(html,/Checking and downloading/);
+  assert.match(html,/Updating T3/);
   assert.match(html,/disabled/);
   assert.match(html,/&lt;next&gt;/);
   assert.doesNotMatch(html,/<next>|<message>/);
+});
+
+test('manual update click applies the downloaded version immediately, without a session check', async () => {
+  let applyVersion;
+  const updates = createUpdateController({
+    load: async () => ({active:'bundled'}),
+    downloadUpdate: async () => ({version:'0.1.7',message:'Installing'}),
+  }, async version => { applyVersion=version; return 'T3 0.1.7 is installed and restarted.'; });
+  updates.start();
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(applyVersion,'0.1.7');
+  assert.equal((await updates.status()).busy,false);
+  assert.match((await updates.status()).message,/installed and restarted/);
+});
+
+test('update supervisor IPC waits for the matching result and handles disconnection', async () => {
+  const host = new EventEmitter();
+  host.connected=true;
+  let request;
+  host.send=(m,cb)=>{request=m;cb(null);};
+  const waiting=applyManualUpdate('0.1.7',host);
+  assert.equal(request.type,'apply-t3-update');
+  assert.equal(request.version,'0.1.7');
+  host.emit('message',{type:'t3-update-result',id:'wrong',message:'wrong'});
+  host.emit('message',{type:'t3-update-result',id:request.id,message:'Installed'});
+  assert.equal(await waiting,'Installed');
+  assert.equal(host.listenerCount('message'),0);
+  const disconnected=applyManualUpdate('0.1.7',host);
+  host.emit('disconnect');
+  await assert.rejects(disconnected,/disconnected/);
+});
+
+test('management commands wait while an explicit update runs, while update progress stays available', async t => {
+  const updates={isBusy:()=>true,status:async()=>({busy:true}),start:()=>{}};
+  const request=await serve(t,{...ingress,updates,runCommand:()=>assert.fail('must not run a management CLI during data backup or migration')});
+  assert.equal((await request('/api/status')).status,409);
+  assert.equal((await request('/api/logout',{method:'POST',headers:jsonHeaders,body:'{}'})).status,409);
+  assert.equal((await request('/api/t3-update')).status,200);
 });
