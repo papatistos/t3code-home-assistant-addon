@@ -1,6 +1,6 @@
 // Minimal ingress status page for the T3 Code add-on.
 // - Shows T3 Connect state and drives the headless (out-of-band OAuth) login.
-// - Shows provider (Claude Code, Codex) login state and drives their headless
+// - Shows provider (Claude Code, Codex, OpenCode) login state and drives their headless
 //   logins with either browser-entered device codes or terminal-entered OAuth codes.
 // No T3 Code UI is served here; remote clients connect through T3 Connect.
 
@@ -72,6 +72,13 @@ const FLOWS = {
     done: /Logged in|Successfully|success/i,
     envSignedIn: () => Boolean(process.env.OPENAI_API_KEY),
   },
+  opencode: {
+    label: "OpenCode (ChatGPT subscription)",
+    command: 'opencode auth login --provider openai --method "ChatGPT Pro/Plus (headless)"',
+    codeEntry: "browser",
+    done: /Login successful/,
+    envSignedIn: () => false,
+  },
 };
 
 const sessions = {}; // name -> { proc, output, url, code, state, error, startedAt }
@@ -97,7 +104,7 @@ export function parseLoginOutput(output) {
     }
   }
   if (!code) {
-    const inline = clean.match(/(?:code|enter)[^\n]{0,40}?\b([A-Z0-9]{4,5}-[A-Z0-9]{4,5}|[A-Z0-9]{8,9})\b/);
+    const inline = clean.match(/(?:code|enter)[^\n]{0,40}?\b([A-Z0-9]{4,5}-[A-Z0-9]{4,5}|[A-Z0-9]{8,9})(?=\s)/);
     code = inline?.[1] || null;
   }
   return { url: link ? link[0].replace(/[),.]+$/, "") : null, code };
@@ -117,7 +124,11 @@ function startFlow(name, spawnProcess = spawn) {
     s.output += chunk.toString();
     const clean = stripAnsi(s.output);
     const parsed = parseLoginOutput(s.output);
-    s.url ||= parsed.url;
+    // OpenCode's device flow always uses this public URL. Never expose a
+    // different URL or arbitrary output from its CLI or plugins.
+    s.url ||= name === "opencode"
+      ? (parsed.url === "https://auth.openai.com/codex/device" ? parsed.url : null)
+      : parsed.url;
     s.code ||= parsed.code;
     if (s.url && s.state === "starting") {
       s.state = flow.codeEntry === "browser" ? "waiting_for_browser" : "waiting_for_code";
@@ -132,20 +143,25 @@ function startFlow(name, spawnProcess = spawn) {
   proc.stderr.on("data", onData);
   proc.on("exit", (code) => {
     if (s.state === "done") return;
-    if (code === 0 && s.state !== "starting") {
+    if (name !== "opencode" && code === 0 && s.state !== "starting") {
       s.state = "done";
       return;
     }
     s.state = "failed";
     s.error = s.error || `Login process exited with code ${code}. See the add-on log.`;
-    console.log(`[status] ${name} login output:\n` + stripAnsi(s.output));
+    if (name === "opencode") console.log("[status] OpenCode login failed; sign in again from the panel.");
+    else console.log(`[status] ${name} login output:\n` + stripAnsi(s.output));
+  });
+  proc.on("error", () => {
+    s.state = "failed";
+    s.error = "Could not start the login process. Try signing in again.";
   });
   return s;
 }
 
 function submitCode(name, code) {
   if (FLOWS[name]?.codeEntry === "browser") {
-    return { ok: false, error: "Enter the device code on the OpenAI sign-in page. Codex completes sign-in automatically." };
+    return { ok: false, error: `Enter the device code on the OpenAI sign-in page. ${FLOWS[name].label} completes sign-in automatically.` };
   }
   const s = sessions[name];
   if (!active(s)) return { ok: false, error: "No login in progress. Click 'Sign in' first." };
@@ -182,6 +198,19 @@ async function providerStatus(runCommand = run) {
     viaEnv: FLOWS.codex.envSignedIn(),
     detail: xRaw.split("\n")[0] || "",
     session: publicSession("codex"),
+  };
+  // auth list reports provider names and credential types, never tokens.
+  // An API key or OPENAI_API_KEY does not establish a subscription login.
+  const opencode = await runCommand("opencode", ["auth", "list"]);
+  const oRaw = stripAnsi(opencode.stdout + opencode.stderr);
+  const subscription = opencode.ok && oRaw.split(/\r?\n/).some(line =>
+    /^OpenAI\s+oauth\s*$/i.test(line.replace(/^[^A-Za-z0-9]+/, "")));
+  out.opencode = {
+    installed: !(opencode.code === 127 || /ENOENT/.test(oRaw)),
+    signedIn: subscription,
+    viaEnv: false,
+    detail: subscription ? "ChatGPT subscription credential saved" : "No ChatGPT subscription credential found",
+    session: publicSession("opencode"),
   };
   return out;
 }
@@ -320,7 +349,7 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
           lan: MODE === "lan" ? lanInfo() : null,
         });
       }
-      const m = path.match(/^\/api\/login\/(t3|claude|codex)\/(start|code)$/);
+      const m = path.match(/^\/api\/login\/(t3|claude|codex|opencode)\/(start|code)$/);
       if (req.method === "POST" && m) {
         const [, name, action] = m;
         if (action === "start") {
@@ -354,6 +383,11 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
         const r = await runCommand("codex", ["logout"]);
         delete sessions.codex;
         return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
+      }
+      if (req.method === "POST" && path === "/api/provider/opencode/logout") {
+        const r = await runCommand("opencode", ["auth", "logout", "openai"]);
+        delete sessions.opencode;
+        return json(res, 200, { ok: r.ok });
       }
       if (req.method === "POST" && path === "/api/restart") {
         return json(res, 200, restartServer());
@@ -406,16 +440,17 @@ let st = null;
 const pending = {};
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function row(l,v){ return '<div class="row"><span>'+l+'</span><span class="'+(v?"ok":"bad")+'">'+(v?"yes":"no")+'</span></div>'; }
-function saveInputs(){ for (const n of ["t3","claude","codex"]) { const e=document.getElementById("code-"+n); if(e) pending[n]=e.value; } }
+function saveInputs(){ for (const n of ["t3","claude","codex","opencode"]) { const e=document.getElementById("code-"+n); if(e) pending[n]=e.value; } }
 async function refresh(){ try { st = await api("/api/status"); if (st.error) { document.getElementById("connect").textContent = st.error; document.getElementById("providers").innerHTML = ""; } else { saveInputs(); renderConnect(); renderProviders(); } await refreshUpdate(); } catch (e) { document.getElementById("connect").textContent = "Status server unreachable: " + e; } }
 
 function flowHtml(name, s){
   if (s.codeEntry === "browser") {
-    if (!s.code || !s.url) return '<p class="muted">Waiting for Codex to provide the device code and sign-in link…</p>';
+    const label = name === "opencode" ? "OpenCode" : "Codex";
+    if (!s.code || !s.url) return '<p class="muted">Waiting for '+label+' to provide the device code and sign-in link…</p>';
     return '<p>Enter this device code on the OpenAI sign-in page:</p>' +
       '<p><span class="big">'+esc(s.code)+'</span></p>' +
       '<p><a href="'+esc(s.url)+'" target="_blank" rel="noopener">Open OpenAI sign-in</a></p>' +
-      '<p class="muted">Complete sign-in in your browser. Codex will finish automatically; this page updates when sign-in completes.</p>' +
+      '<p class="muted">Complete sign-in in your browser. '+label+' will finish automatically; this page updates when sign-in completes.</p>' +
       (s.error ? '<p class="bad">'+esc(s.error)+'</p>' : '');
   }
   let h = '<p><b>Step 1.</b> Open this link on any device with a browser and sign in:</p>' +
@@ -461,9 +496,9 @@ function renderConnect(){
 function renderProviders(){
   const p = st.providers || {}; const el = document.getElementById("providers");
   let h = '<h2>Providers on this server</h2><p class="muted">Provider logins are per machine. Sign in here if the T3 Code app does not offer it for this environment. Alternatively set an API key or token in the add-on configuration.</p>';
-  for (const name of ["claude","codex"]) {
+  for (const name of ["claude","codex","opencode"]) {
     const v = p[name]; if (!v) continue;
-    const label = name === "claude" ? "Claude Code" : "Codex";
+    const label = name === "claude" ? "Claude Code" : name === "opencode" ? "OpenCode (ChatGPT subscription)" : "Codex";
     h += '<div class="row"><span>'+label+'</span><span class="'+(v.signedIn?"ok":"bad")+'">'+(!v.installed?"not installed":v.signedIn?(v.viaEnv?"configured via add-on option":"signed in"):"signed out")+'</span></div>';
     if (!v.installed) continue;
     if (v.detail) h += '<p class="muted">'+esc(v.detail)+'</p>';

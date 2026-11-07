@@ -277,3 +277,138 @@ test('management commands wait while an explicit update runs, while update progr
   assert.equal((await request('/api/logout',{method:'POST',headers:jsonHeaders,body:'{}'})).status,409);
   assert.equal((await request('/api/t3-update')).status,200);
 });
+
+// OpenCode v1.19.5 plugin/openai/codex.ts prints these two messages through
+// the providers login command. All codes and credentials below are fictional.
+const opencodePrompt = "│  Go to: https://auth.openai.com/codex/device\n│  Enter code: WXYZ-12345\n◐  Waiting for authorization...\n";
+
+test("OpenCode inline device codes survive chunk boundaries", () => {
+  assert.equal(parseLoginOutput(opencodePrompt).code, "WXYZ-12345");
+  const partial = opencodePrompt.slice(0, opencodePrompt.indexOf("WXYZ-12345") + 9);
+  assert.equal(parseLoginOutput(partial).code, null);
+  assert.equal(parseLoginOutput(partial.slice(0, -1)).code, null);
+  assert.equal(parseLoginOutput(opencodePrompt.replaceAll("\n", "\r\n")).code, "WXYZ-12345");
+});
+
+test("OpenCode subscription login uses the headless method and completes in the browser", async t => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
+  const submitted = [];
+  child.stdin.on("data", chunk => submitted.push(chunk.toString()));
+  let signedIn = false, starts = 0;
+  const split = opencodePrompt.indexOf("WXYZ-12345") + 9;
+  const calls = [];
+  const request = await serve(t, { ...ingress,
+    spawnLogin: (command, args, options) => {
+      starts++;
+      assert.equal(command, "script");
+      assert.equal(args[1], 'opencode auth login --provider openai --method "ChatGPT Pro/Plus (headless)"');
+      assert.equal(options.env.HOME, process.env.HOME);
+      assert.equal(options.env.BROWSER, "/bin/false");
+      queueMicrotask(() => child.stdout.write(opencodePrompt.slice(0, split)));
+      return child;
+    },
+    runCommand: async (command, args) => {
+      calls.push([command, args]);
+      if (command === "t3") return { ok: true, stdout: '{"authenticated":false}', stderr: "" };
+      if (command === "opencode") return { ok: true, stdout: signedIn ? "│  ● OpenAI \x1b[90moauth\x1b[0m\n" : "0 credentials\n", stderr: "" };
+      return { ok: false, stdout: "Not logged in", stderr: "" };
+    },
+  });
+  t.after(() => { child.emit("exit", 1); child.stdout.destroy(); child.stderr.destroy(); child.stdin.destroy(); });
+  const postCode = code => request("/api/login/opencode/code", { method: "POST", headers: jsonHeaders, body: JSON.stringify({code}) });
+  const start = await request("/api/login/opencode/start", { method: "POST", headers: jsonHeaders, body: "{}" });
+  assert.equal(start.status, 200);
+  const first = JSON.parse(start.text);
+  assert.equal(first.state, "waiting_for_browser");
+  assert.equal(first.codeEntry, "browser");
+  assert.equal(first.code, null);
+  await request("/api/login/opencode/start", { method: "POST", headers: jsonHeaders, body: "{}" });
+  assert.equal(starts, 1);
+  child.stderr.write(opencodePrompt.slice(split));
+  let status = JSON.parse((await request("/api/status")).text);
+  assert.equal(status.providers.opencode.signedIn, false);
+  assert.equal(status.providers.opencode.session.code, "WXYZ-12345");
+  for (const code of [null, "", "a\nb", "\u001b", "x".repeat(4097)]) assert.equal((await postCode(code)).status, 400);
+  assert.equal(JSON.parse((await postCode("WXYZ-12345")).text).ok, false);
+  assert.deepEqual(submitted, []);
+  signedIn = true;
+  child.stdout.write("Login successful\n"); child.emit("exit", 0);
+  status = JSON.parse((await request("/api/status")).text);
+  assert.equal(status.providers.opencode.signedIn, true);
+  assert.equal(status.providers.opencode.session.state, "done");
+  assert.ok(calls.some(([command, args]) => command === "opencode" && args.join(" ") === "auth list"));
+  const page = await request("/");
+  const context = createContext({ fetch: () => new Promise(() => {}), setInterval: () => 0 });
+  new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(context);
+  const html = context.flowHtml("opencode", status.providers.opencode.session);
+  assert.match(html, /WXYZ-12345/);
+  assert.match(html, /OpenCode will finish automatically/);
+  assert.doesNotMatch(html, /<input|Submit code|Codex/);
+  let rendered;
+  context.document = { getElementById: () => ({set innerHTML(value) { rendered = value; }}) };
+  context.fixture = status;
+  new Script("st = fixture; renderProviders();").runInContext(context);
+  assert.match(rendered, /OpenCode \(ChatGPT subscription\)/);
+});
+
+test("OpenCode status distinguishes subscription credentials from API keys without returning CLI output", async t => {
+  let response;
+  const request = await serve(t, { ...ingress, runCommand: async command => command === "opencode" ? response :
+    { ok: true, stdout: command === "t3" ? '{}' : 'Not logged in', stderr: "" } });
+  for (const [ok, code, stdout, signedIn, installed] of [
+    [true, 0, "│ ● OpenAI oauth\n", true, true],
+    [true, 0, "│ ● OpenAI api\nEnvironment\nOpenAI OPENAI_API_KEY\n", false, true],
+    [true, 0, "│ ● Other oauth\n", false, true],
+    [true, 0, "0 credentials\n", false, true],
+    [false, 1, "│ ● OpenAI oauth\n", false, true],
+    [false, 127, "ENOENT", false, false],
+  ]) {
+    response = { ok, code, stdout, stderr: "fictional-access-token fictional-refresh-token" };
+    const result = await request("/api/status");
+    const provider = JSON.parse(result.text).providers.opencode;
+    assert.equal(provider.signedIn, signedIn);
+    assert.equal(provider.installed, installed);
+    assert.equal(provider.viaEnv, false);
+    assert.doesNotMatch(result.text, /fictional-access-token|fictional-refresh-token|ENOENT/);
+  }
+});
+
+test("OpenCode failures and logout never expose raw CLI output in responses or logs", async t => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (...args) => logs.push(args.join(" "));
+  t.after(() => { console.log = originalLog; child.stdout.destroy(); child.stderr.destroy(); child.stdin.destroy(); });
+  const request = await serve(t, { ...ingress,
+    spawnLogin: () => { queueMicrotask(() => child.stdout.write(opencodePrompt + "fictional-access-token\n")); return child; },
+    runCommand: async (command, args) => {
+      if (command !== "opencode" || args[1] === "list") {
+        return {ok: true, stdout: command === "t3" ? '{}' : '', stderr: ''};
+      }
+      assert.deepEqual(args, ["auth", "logout", "openai"]);
+      return { ok: false, stdout: "fictional-access-token", stderr: "fictional-refresh-token" };
+    },
+  });
+  await request("/api/login/opencode/start", { method: "POST", headers: jsonHeaders, body: "{}" });
+  child.stderr.write("Failed to authorize fictional-refresh-token\n");
+  child.emit("exit", 0); // OpenCode can exit zero after reporting a failed authorization.
+  const failure = await request("/api/status");
+  assert.equal(JSON.parse(failure.text).providers.opencode.session.state, "failed");
+  assert.equal(JSON.parse(failure.text).providers.opencode.signedIn, false);
+  const logout = await request("/api/provider/opencode/logout", { method: "POST", headers: jsonHeaders, body: "{}" });
+  assert.deepEqual(JSON.parse(logout.text), {ok: false});
+  assert.doesNotMatch(failure.text + logout.text + logs.join("\n"), /fictional-access-token|fictional-refresh-token/);
+});
+
+test("OpenCode routes retain ingress and cross-site protections", async t => {
+  const forbidden = () => assert.fail("must not run a CLI");
+  const direct = await serve(t, {spawnLogin: forbidden, runCommand: forbidden});
+  const trusted = await serve(t, {...ingress, spawnLogin: forbidden, runCommand: forbidden});
+  for (const path of ["/api/login/opencode/start", "/api/login/opencode/code", "/api/provider/opencode/logout"]) {
+    assert.equal((await direct(path, {method: "POST", headers: jsonHeaders, body: '{}'})).status, 403);
+    assert.equal((await trusted(path, {method: "POST", headers: {...jsonHeaders, "sec-fetch-site": "cross-site"}, body: '{}'})).status, 403);
+    assert.equal((await trusted(path, {method: "POST", body: '{}'})).status, 415);
+  }
+});
