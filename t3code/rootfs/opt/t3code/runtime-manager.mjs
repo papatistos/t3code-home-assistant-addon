@@ -76,6 +76,7 @@ export class RuntimeManager {
     const s = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
     const valid = v => v === 'bundled' || stable(v);
     if (!valid(s.active) || (s.previous && !valid(s.previous)) ||
+        (s.requested !== undefined && !stable(s.requested)) ||
         (s.pending && (!stable(s.pending.version) || !/^[0-9a-f-]{36}$/.test(s.pending.id)))) {
       throw new Error('invalid update state; manual recovery required');
     }
@@ -167,24 +168,50 @@ export class RuntimeManager {
     await this.select(next.active);
     return next;
   }
+  async latestVersion() {
+    const meta = path.join(this.root, 'latest.json');
+    try {
+      await this.fetch(this.latestURL, meta, this.checkTimeout);
+      const release = JSON.parse(await fs.readFile(meta, 'utf8'));
+      const version = release.tag_name?.replace(/^v/, '');
+      if (!stable(version) || release.draft || release.prerelease) throw new Error('invalid stable release');
+      return version;
+    } finally { await fs.rm(meta, { force: true }); }
+  }
+  async downloadUpdate() {
+    // The management panel may download while sessions run. It must never select
+    // a runtime, snapshot a live database, or restart a server here.
+    await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
+    const s = await this.load();
+    if (s.pending) throw new Error('startup trial still pending');
+    const version = await this.latestVersion();
+    const current = s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active;
+    if (!newer(version, current)) return { message: `T3 ${current} is up to date.` };
+    await this.install(version);
+    const latest = await this.load();
+    if (latest.pending || latest.active !== s.active) throw new Error('selection changed during download');
+    await this.save({ ...latest, requested: version });
+    this.log(`Manual download ${version} ready for the next add-on restart; running version unchanged`);
+    return { message: `T3 ${version} is downloaded. Finish your work, then restart the add-on in Home Assistant to install it.` };
+  }
   async prepare(enabled) {
     await fs.mkdir(this.root, { recursive: true, mode: 0o700 });
     await fs.mkdir(this.home, { recursive: true, mode: 0o700 });
     let s = await this.load();
     s = await this.rollback(s);
     await this.select(s.active);
-    if (!enabled) { this.log('Automatic updates disabled; retaining selected runtime'); return s; }
-    const meta = path.join(this.root, 'latest.json');
+    const manual = s.requested !== undefined;
+    if (!enabled && !manual) { this.log('Automatic updates disabled; retaining selected runtime'); return s; }
     let version, phase = 'Release check';
     try {
-      await this.fetch(this.latestURL, meta, this.checkTimeout);
-      const release = JSON.parse(await fs.readFile(meta, 'utf8'));
-      version = release.tag_name?.replace(/^v/, '');
-      if (!stable(version) || release.draft || release.prerelease) throw new Error('invalid stable release');
+      version = manual ? s.requested : await this.latestVersion();
       const current = s.active === 'bundled' ? await this.run(this.bundled, ['--version']) : s.active;
-      if (!newer(version, current)) { this.log(`No newer stable release; retaining ${current}`); return s; }
-      if (s.rejected === version) { this.log(`Skipping failed trial ${version}; retaining ${current}`); return s; }
-      this.log(`Staging stable ${version}`);
+      if (!newer(version, current)) {
+        if (manual) { delete s.requested; await this.save(s); }
+        this.log(`No newer stable release; retaining ${current}`); return s;
+      }
+      if (!manual && s.rejected === version) { this.log(`Skipping failed trial ${version}; retaining ${current}`); return s; }
+      this.log(`${manual ? 'Preparing manually downloaded' : 'Staging stable'} ${version}`);
       phase = 'Installation or compatibility validation';
       await this.install(version);
       phase = 'Data snapshot (requires sufficient space and no data symlinks)';
@@ -197,6 +224,7 @@ export class RuntimeManager {
       await fs.rename(`${snapshot}.stage`, snapshot);
       await syncDir(path.dirname(snapshot));
       s = { ...s, pending };
+      delete s.requested;
       await this.save(s);
       await this.select(version);
       return s;
@@ -205,7 +233,7 @@ export class RuntimeManager {
       if (s.pending) return this.rollback(s);
       this.log(`${phase} failed or timed out; retaining selected runtime`);
       return s;
-    } finally { await fs.rm(meta, { force: true }); }
+    }
   }
   async commit(s) {
     const next = { active: s.pending.version, previous: s.active, snapshot: s.pending.id };

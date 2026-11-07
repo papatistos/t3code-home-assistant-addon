@@ -9,6 +9,7 @@ import os from "node:os";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 import { spawn, execFile } from "node:child_process";
+import { RuntimeManager } from "./runtime-manager.mjs";
 
 const PORT = 8099;
 const MODE = process.env.T3CODE_REMOTE_MODE || "t3_connect";
@@ -240,7 +241,27 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-export function createStatusServer({ runCommand = run, isTrustedRequest = isIngressRequest, spawnLogin = spawn } = {}) {
+export function createUpdateController(manager = new RuntimeManager()) {
+  let job = null;
+  let message = "Check for a newer T3 version and download it for the next add-on restart.";
+  return {
+    async status() {
+      const s = await manager.load();
+      return { current: s.active === "bundled" ? "0.1.6" : s.active,
+        queued: s.requested || null, busy: job !== null, message };
+    },
+    start() {
+      if (job) return;
+      message = "Checking for a T3 update and downloading it if available. Your current session will keep running.";
+      job = manager.downloadUpdate()
+        .then(result => { message = result.message; })
+        .catch(() => { message = "The update could not be downloaded or checked. Your running T3 version is unchanged. You can try again."; })
+        .finally(() => { job = null; });
+    },
+  };
+}
+
+export function createStatusServer({ runCommand = run, isTrustedRequest = isIngressRequest, spawnLogin = spawn, updates = createUpdateController() } = {}) {
   const server = http.createServer(async (req, res) => {
     if (!isTrustedRequest(req)) return json(res, 403, { error: "Ingress connections only" });
     if (req.method === "POST") {
@@ -258,6 +279,15 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
       let path = url.pathname;
       if (ingressPath && path.startsWith(ingressPath)) path = path.slice(ingressPath.length) || "/";
 
+      if (req.method === "GET" && path === "/api/t3-update") {
+        return json(res, 200, await updates.status());
+      }
+      if (req.method === "POST" && path === "/api/t3-update") {
+        const body = await readBody(req);
+        if (Object.keys(body).length) return json(res, 400, { error: "No update parameters are accepted" });
+        updates.start();
+        return json(res, 202, await updates.status());
+      }
       if (req.method === "GET" && path === "/api/status") {
         return json(res, 200, {
           mode: MODE,
@@ -343,6 +373,7 @@ const PAGE = `<!doctype html>
 <h1>T3 Code add-on</h1>
 <div id="connect" class="card">Loading…</div>
 <div id="providers" class="card"></div>
+<div id="updates" class="card"></div>
 <div class="muted">This page only manages remote access and sign-ins. Use the T3 Code app on your phone or desktop to work with agents.</div>
 <script>
 const BASE = "__BASE__";
@@ -353,7 +384,7 @@ const pending = {};
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function row(l,v){ return '<div class="row"><span>'+l+'</span><span class="'+(v?"ok":"bad")+'">'+(v?"yes":"no")+'</span></div>'; }
 function saveInputs(){ for (const n of ["t3","claude","codex"]) { const e=document.getElementById("code-"+n); if(e) pending[n]=e.value; } }
-async function refresh(){ try { st = await api("/api/status"); saveInputs(); renderConnect(); renderProviders(); } catch (e) { document.getElementById("connect").textContent = "Status server unreachable: " + e; } }
+async function refresh(){ try { st = await api("/api/status"); saveInputs(); renderConnect(); renderProviders(); await refreshUpdate(); } catch (e) { document.getElementById("connect").textContent = "Status server unreachable: " + e; } }
 
 function flowHtml(name, s){
   if (s.codeEntry === "browser") {
@@ -425,6 +456,19 @@ function renderProviders(){
   }
   el.innerHTML = h;
 }
+async function refreshUpdate(){
+  const el = document.getElementById("updates");
+  try {
+    const u = await api("/api/t3-update");
+    if (u.error) throw new Error(u.error);
+    el.innerHTML = '<h2>T3 updates</h2><p>Running T3 '+esc(u.current)+'</p>' +
+      '<p>'+esc(u.message)+'</p>' +
+      (u.queued ? '<p class="ok">T3 '+esc(u.queued)+' is downloaded. Finish your work, then restart the add-on in Home Assistant to install it.</p>' : '') +
+      '<button onclick="downloadUpdate()" '+(u.busy?'disabled':'')+'>'+(u.busy?'Checking and downloading…':'Download T3 update')+'</button>' +
+      '<p class="muted">This button keeps T3 running. Installation happens at the next add-on restart, even if automatic updates are off. The server restart button above does not install updates.</p>';
+  } catch { el.textContent = 'T3 update information is unavailable. Your running version is unchanged.'; }
+}
+async function downloadUpdate(){ await post("/api/t3-update"); await refreshUpdate(); }
 async function start(n){ await post("/api/login/"+n+"/start"); await refresh(); }
 async function submit(n){ const code=document.getElementById("code-"+n).value; if(!code) return; pending[n]=""; await post("/api/login/"+n+"/code",{code}); await refresh(); }
 async function unlink(){ if(confirm("Disable remote access?")) { await post("/api/unlink"); await refresh(); } }

@@ -268,3 +268,52 @@ test('a failed later update retains the earlier recovery snapshot reference', as
   assert.equal(restored.snapshot, 'earlier-snapshot-id');
   assert.equal(restored.pending, undefined);
 });
+
+test('manual download leaves running selection and data untouched and creates no snapshot', async t => {
+  const f = await fixture(t);
+  await f.manager.prepare(false);
+  const selected = await fs.readFile(f.manager.selection, 'utf8');
+  f.manager.copyData = () => assert.fail('manual download must not copy live data');
+  f.manager.start = () => assert.fail('manual download must not start or restart T3');
+  const result = await f.manager.downloadUpdate();
+  assert.match(result.message, /restart the add-on in Home Assistant/);
+  assert.equal(await fs.readFile(f.manager.selection,'utf8'), selected);
+  assert.equal(await fs.readFile(path.join(f.home,'state'),'utf8'),'original');
+  const s = await f.manager.load();
+  assert.equal(s.active,'bundled'); assert.equal(s.requested,'0.1.7');
+  assert.equal(s.pending, undefined);
+  await assert.rejects(fs.access(path.join(f.manager.root,'snapshots')));
+});
+
+test('a manually downloaded update is applied after container replacement with auto updates disabled and no network', async t => {
+  const f = await fixture(t);
+  await f.manager.prepare(false);
+  await f.manager.downloadUpdate();
+  const replacement = new RuntimeManager(f.options);
+  replacement.fetch = () => assert.fail('downloaded update must start offline');
+  const s = await replacement.prepare(false);
+  assert.equal(s.pending.version,'0.1.7');
+  assert.equal(s.requested,undefined);
+  assert.equal(s.active,'bundled');
+  await replacement.rollback(s);
+  await replacement.prepare(false);
+  assert.equal((await replacement.load()).pending,undefined,'failed manual trial must not retry itself');
+});
+
+test('a failed manual download keeps the running version and does not queue an installation', async t => {
+  const f = await fixture(t);
+  await f.manager.prepare(false);
+  f.manager.fetch = async () => { throw new Error('offline'); };
+  await assert.rejects(f.manager.downloadUpdate());
+  assert.equal((await f.manager.load()).requested,undefined);
+  assert.equal((await fs.readFile(f.manager.selection,'utf8')).trim(),f.manager.bundled);
+});
+
+test('manual check reports no newer release without changing the selection', async t => {
+  const f = await fixture(t);
+  await f.manager.commit(await f.manager.prepare(true));
+  const result = await f.manager.downloadUpdate();
+  assert.match(result.message,/0.1.7 is up to date/);
+  assert.equal((await f.manager.load()).requested,undefined);
+  assert.equal((await f.manager.load()).active,'0.1.7');
+});

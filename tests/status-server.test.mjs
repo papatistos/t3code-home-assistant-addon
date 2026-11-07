@@ -4,7 +4,7 @@ import { once, EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { Script, createContext } from "node:vm";
-import { createStatusServer, isIngressRequest, parseLoginOutput } from "../t3code/rootfs/opt/t3code/status-server.mjs";
+import { createStatusServer, createUpdateController, isIngressRequest, parseLoginOutput } from "../t3code/rootfs/opt/t3code/status-server.mjs";
 
 async function serve(t, options) {
   const server = createStatusServer(options);
@@ -176,4 +176,65 @@ test("Codex login API retains a fragmented device code and waits for browser aut
   status = JSON.parse((await request("/api/status")).text);
   assert.equal(status.providers.codex.session.state, "done");
   assert.equal(status.providers.codex.signedIn, true);
+});
+
+test('manual update requests keep ingress protections and accept no arbitrary package or version', async t => {
+  let starts = 0;
+  const updates = {
+    status: async () => ({current:'0.1.6',queued:null,busy:false,message:'Ready'}),
+    start: () => { starts++; },
+  };
+  const direct = await serve(t,{updates});
+  assert.equal((await direct('/api/t3-update',{method:'POST',headers:jsonHeaders,body:'{}'})).status,403);
+  assert.equal((await direct('/api/t3-update')).status,403);
+  const request = await serve(t,{...ingress,updates});
+  assert.equal((await request('/api/t3-update',{method:'POST',headers:{...jsonHeaders,'sec-fetch-site':'cross-site'},body:'{}'})).status,403);
+  assert.equal((await request('/api/t3-update',{method:'POST',body:'{}'})).status,415);
+  assert.equal((await request('/api/t3-update',{method:'POST',headers:jsonHeaders,body:'{'})).status,400);
+  assert.equal((await request('/api/t3-update',{method:'POST',headers:jsonHeaders,body:'{"version":"arbitrary"}'})).status,400);
+  assert.equal((await request('/api/t3-update',{method:'POST',headers:jsonHeaders,body:JSON.stringify({padding:'x'.repeat(9000)})})).status,413);
+  assert.equal(starts,0);
+  assert.equal((await request('/api/t3-update',{method:'POST',headers:jsonHeaders,body:'{}'})).status,202);
+  assert.equal(starts,1);
+  assert.equal(JSON.parse((await request('/api/t3-update')).text).current,'0.1.6');
+});
+
+test('manual update controller runs one download at a time and reports failures without secrets', async () => {
+  let calls=0, complete;
+  const updates=createUpdateController({
+    load:async()=>({active:'bundled'}),
+    downloadUpdate:()=>{calls++;return new Promise(resolve=>{complete=resolve;});},
+  });
+  updates.start();updates.start();
+  assert.equal(calls,1);
+  assert.equal((await updates.status()).busy,true);
+  complete({message:'Downloaded for next add-on restart'});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal((await updates.status()).busy,false);
+  assert.match((await updates.status()).message,/next add-on restart/);
+  const failure=createUpdateController({load:async()=>({active:'0.1.7',requested:'0.1.8'}),downloadUpdate:async()=>{throw new Error('credential=private');}});
+  failure.start();await new Promise(resolve=>setImmediate(resolve));
+  const status=await failure.status();
+  assert.equal(status.queued,'0.1.8');
+  assert.match(status.message,/running T3 version is unchanged/);
+  assert.doesNotMatch(JSON.stringify(status),/credential|private/);
+});
+
+test('manual update button explains when installation happens and escapes displayed values', async t => {
+  const request=await serve(t,ingress);
+  const page=await request('/');
+  let html='';
+  const context=createContext({
+    fetch:async url=>({json:async()=>url.endsWith('/api/t3-update')?{current:'<current>',queued:'<next>',message:'<message>',busy:true}:{}}),
+    setInterval:()=>0,
+    document:{getElementById:()=>({set innerHTML(value){html=value;}})},
+  });
+  new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(context);
+  await context.refreshUpdate();
+  assert.match(html,/restart the add-on in Home Assistant/);
+  assert.match(html,/even if automatic updates are off/);
+  assert.match(html,/Checking and downloading/);
+  assert.match(html,/disabled/);
+  assert.match(html,/&lt;next&gt;/);
+  assert.doesNotMatch(html,/<next>|<message>/);
 });
