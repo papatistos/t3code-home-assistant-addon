@@ -2,7 +2,7 @@
 
 Runs a headless [T3 Code](https://github.com/pingdotgg/t3code) server inside Home Assistant.
 You control it remotely from the T3 Code app (iOS, Android, web, or desktop). The add-on
-itself only serves a small status page for signing in to T3 Connect.
+itself serves a small status page for remote access and provider sign-ins.
 
 ## First run (T3 Connect)
 
@@ -17,14 +17,15 @@ itself only serves a small status page for signing in to T3 Connect.
 The same instructions are printed in the add-on **Log** tab if you prefer to follow them
 from there.
 
-## Provider sign-in (Claude Code, Codex)
+## Provider sign-in (Claude Code, Codex, OpenCode)
 
 Provider logins are per machine, so signing in on your laptop does not sign in the add-on.
 You have three options:
 
 1. **Status page.** The T3 Code panel has a Providers section with a Sign in button for
-   Claude Code and Codex. For Codex, open the OpenAI sign-in link and enter the
-   device code displayed in the panel. Codex then completes sign-in automatically;
+   Claude Code, Codex, and **OpenCode (ChatGPT subscription)**. For Codex or
+   OpenCode, open the OpenAI sign-in link and enter the
+   device code displayed in the panel. The selected CLI completes sign-in automatically;
    no code needs to be pasted back into the panel. For Claude Code, open its login
    link and paste the authorization code back into the panel if the browser asks.
 2. **Add-on options.** Set `claude_code_oauth_token` (from `claude setup-token` on a machine
@@ -33,6 +34,47 @@ You have three options:
 3. **T3 Code app.** Settings → Providers, if the app offers sign-in for this environment.
 
 Credentials are stored in the add-on's `/data` directory and survive restarts and updates.
+
+### OpenCode with a ChatGPT subscription
+
+Click **Sign in to OpenCode (ChatGPT subscription)**, open the OpenAI link on
+your phone or computer, and enter the displayed device code there. Leave the
+panel open; it refreshes when OpenCode finishes. Nothing needs to be pasted
+back into the panel. Acceptance of ChatGPT Edu accounts has not been tested with
+this add-on.
+
+OpenCode signs in separately from Codex. Its bundled 1.19.5 release supports
+`opencode auth login --provider openai --method "ChatGPT Pro/Plus (headless)"`.
+This uses OpenAI's device sign-in, with no browser or callback port on the server.
+OpenCode does not automatically read the Codex CLI's existing login.
+
+OpenCode saves its OpenAI credential in
+`/data/home/.local/share/opencode/auth.json`, or under
+`$XDG_DATA_HOME/opencode/auth.json` when that variable is set. OpenCode writes
+this file with owner-only access. Its settings live in
+`/data/home/.config/opencode/opencode.json`, or under `$XDG_CONFIG_HOME/opencode`.
+The panel and local T3 provider inherit the same home and environment.
+Keep **Server URL** empty in T3's OpenCode settings to use this local login;
+an external OpenCode server has its own credentials. Custom HOME or XDG overrides
+in T3's provider settings must also match the panel to share this login.
+
+The panel checks `opencode auth list` for an `OpenAI oauth` entry, without
+displaying credentials. "Signed in" means a subscription credential is saved;
+it does not prove the credential is still accepted or your plan permits a model.
+An API key does not count as a ChatGPT subscription login. Signing out removes
+only OpenCode's OpenAI credential and leaves Codex signed in.
+
+After signing in, enable OpenCode in **Settings > Providers** in T3 and select
+**Refresh provider status**. On mobile, use **Refresh models** in thread settings.
+If settings remain cached, leave the local helper idle for 30 seconds and refresh
+again. Choose an available OpenAI model to use the subscription.
+
+The implementation follows the pinned [OpenCode headless sign-in source](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/plugin/openai/codex.ts),
+[login and status commands](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/cli/cmd/providers.ts),
+and [credential storage](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/auth/index.ts).
+T3's [OpenCode setup instructions](https://github.com/pingdotgg/t3code/blob/v0.1.6/docs/user/providers-opencode.md)
+describe local servers and credential refresh.
+
 
 ## Options
 

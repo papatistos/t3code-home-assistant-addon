@@ -1,5 +1,7 @@
 ## 0.1.14
 
+- Add OpenCode ChatGPT subscription sign-in to the panel using its headless device flow, with separate credential status, sign-out, and security regression tests.
+
 - Clean up trial snapshots, failed and temporary copies, and obsolete downloaded T3 versions automatically after recovery is no longer needed. Save the completed state before deletion and retry interrupted cleanup at startup without blocking startup on cleanup errors.
 - Use a pre-update Home Assistant add-on backup for recovery after activation. Pending trial snapshots remain included in backups.
 
