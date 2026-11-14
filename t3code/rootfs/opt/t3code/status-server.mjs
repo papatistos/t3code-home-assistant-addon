@@ -74,9 +74,9 @@ const FLOWS = {
   },
   opencode: {
     label: "OpenCode (ChatGPT subscription)",
-    command: 'opencode auth login --provider openai --method "ChatGPT Pro/Plus (headless)"',
+    command: 'opencode auth login openai --method chatgpt-headless --standalone',
     codeEntry: "browser",
-    done: /Login successful/,
+    done: /Connected to OpenAI/,
     envSignedIn: () => false,
   },
 };
@@ -179,6 +179,21 @@ function publicSession(name) {
 
 // ---- provider status ------------------------------------------------------
 
+// OpenCode 2 exposes credential metadata, not tokens, in auth list JSON.
+// Return null on failure rather than claiming that malformed output means signed out.
+function openCodeAccounts(result) {
+  if (!result.ok) return null;
+  try {
+    const integrations = JSON.parse(result.stdout);
+    if (!Array.isArray(integrations)) return null;
+    return integrations.filter(item => item?.id === "openai")
+      .flatMap(item => Array.isArray(item.connections) ? item.connections : [])
+      .filter(connection => connection?.type === "credential" && connection.method === "oauth" &&
+        typeof connection.id === "string" && /^cred_[A-Za-z0-9_-]+$/.test(connection.id));
+  } catch { return null; }
+}
+const openCodeListArgs = ["auth", "list", "--format", "json", "--standalone"];
+
 async function providerStatus(runCommand = run) {
   const out = {};
   const claude = await runCommand("claude", ["auth", "status"]);
@@ -199,17 +214,16 @@ async function providerStatus(runCommand = run) {
     detail: xRaw.split("\n")[0] || "",
     session: publicSession("codex"),
   };
-  // auth list reports provider names and credential types, never tokens.
   // An API key or OPENAI_API_KEY does not establish a subscription login.
-  const opencode = await runCommand("opencode", ["auth", "list"]);
+  const opencode = await runCommand("opencode", openCodeListArgs);
   const oRaw = stripAnsi(opencode.stdout + opencode.stderr);
-  const subscription = opencode.ok && oRaw.split(/\r?\n/).some(line =>
-    /^OpenAI\s+oauth\s*$/i.test(line.replace(/^[^A-Za-z0-9]+/, "")));
+  const accounts = openCodeAccounts(opencode);
+  const subscription = accounts?.some(account => account.status?.status !== "needs_auth") ?? false;
   out.opencode = {
     installed: !(opencode.code === 127 || /ENOENT/.test(oRaw)),
     signedIn: subscription,
     viaEnv: false,
-    detail: subscription ? "ChatGPT subscription credential saved" : "No ChatGPT subscription credential found",
+    detail: accounts === null ? "Could not check OpenCode credentials" : subscription ? "ChatGPT subscription credential saved" : accounts.length ? "ChatGPT subscription needs sign-in again" : "No ChatGPT subscription credential found",
     session: publicSession("opencode"),
   };
   return out;
@@ -385,9 +399,17 @@ export function createStatusServer({ runCommand = run, isTrustedRequest = isIngr
         return json(res, 200, { ok: r.ok, output: (r.stdout + r.stderr).trim() });
       }
       if (req.method === "POST" && path === "/api/provider/opencode/logout") {
-        const r = await runCommand("opencode", ["auth", "logout", "openai"]);
+        const accounts = openCodeAccounts(await runCommand("opencode", openCodeListArgs));
+        if (accounts === null) return json(res, 200, { ok: false });
+        // V2 requires a credential ID. Remove only OpenAI OAuth accounts;
+        // preserve API keys, other integrations, and Codex credentials.
+        let ok = true;
+        for (const account of accounts) {
+          const r = await runCommand("opencode", ["auth", "logout", "openai", account.id, "--standalone"]);
+          ok = r.ok && ok;
+        }
         delete sessions.opencode;
-        return json(res, 200, { ok: r.ok });
+        return json(res, 200, { ok });
       }
       if (req.method === "POST" && path === "/api/restart") {
         return json(res, 200, restartServer());

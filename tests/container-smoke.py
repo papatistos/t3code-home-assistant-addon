@@ -115,6 +115,7 @@ with tempfile.TemporaryDirectory(prefix="t3ha-smoke-") as temporary:
         docker("run", "--rm", "--network", network, "--ip", "172.30.32.3",
                "--entrypoint", "python3", image, "-c", probe, "denied")
         docker("exec", "-i", name, "python3", "-", input=(repo / "tests/mcp-smoke.py").read_text())
+        docker("exec", "-i", name, "python3", "-", input=(repo / "tests/opencode-v2-smoke.py").read_text())
         pi_version = docker("exec", name, "pi", "--version", capture_output=True)
         assert pi_version.stdout.strip() == "1.5.2", pi_version
         docker("exec", name, "ha", "--help", capture_output=True)

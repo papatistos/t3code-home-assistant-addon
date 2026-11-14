@@ -282,9 +282,11 @@ test('management commands wait while an explicit update runs, while update progr
   assert.equal((await request('/api/t3-update')).status,200);
 });
 
-// OpenCode v1.19.5 plugin/openai/codex.ts prints these two messages through
-// the providers login command. All codes and credentials below are fictional.
-const opencodePrompt = "│  Go to: https://auth.openai.com/codex/device\n│  Enter code: WXYZ-12345\n◐  Waiting for authorization...\n";
+// OpenCode v2 prints the instructions before the authorization URL.
+// All codes and credentials below are fictional.
+const opencodePrompt = "│  Enter code: WXYZ-12345\n│  https://auth.openai.com/codex/device\n◇  Waiting for authorization...\n";
+const ocAccounts = (connections, id = "openai") => JSON.stringify([{ id, name: "OpenAI", connections }]);
+const ocOAuth = { type: "credential", id: "cred_test", label: "Account", method: "oauth" };
 
 test("OpenCode inline device codes survive chunk boundaries", () => {
   assert.equal(parseLoginOutput(opencodePrompt).code, "WXYZ-12345");
@@ -306,7 +308,7 @@ test("OpenCode subscription login uses the headless method and completes in the 
     spawnLogin: (command, args, options) => {
       starts++;
       assert.equal(command, "script");
-      assert.equal(args[1], 'opencode auth login --provider openai --method "ChatGPT Pro/Plus (headless)"');
+      assert.equal(args[1], 'opencode auth login openai --method chatgpt-headless --standalone');
       assert.equal(options.env.HOME, process.env.HOME);
       assert.equal(options.env.BROWSER, "/bin/false");
       queueMicrotask(() => child.stdout.write(opencodePrompt.slice(0, split)));
@@ -315,7 +317,7 @@ test("OpenCode subscription login uses the headless method and completes in the 
     runCommand: async (command, args) => {
       calls.push([command, args]);
       if (command === "t3") return { ok: true, stdout: '{"authenticated":false}', stderr: "" };
-      if (command === "opencode") return { ok: true, stdout: signedIn ? "│  ● OpenAI \x1b[90moauth\x1b[0m\n" : "0 credentials\n", stderr: "" };
+      if (command === "opencode") return { ok: true, stdout: signedIn ? ocAccounts([ocOAuth]) : "[]", stderr: "" };
       return { ok: false, stdout: "Not logged in", stderr: "" };
     },
   });
@@ -324,7 +326,7 @@ test("OpenCode subscription login uses the headless method and completes in the 
   const start = await request("/api/login/opencode/start", { method: "POST", headers: jsonHeaders, body: "{}" });
   assert.equal(start.status, 200);
   const first = JSON.parse(start.text);
-  assert.equal(first.state, "waiting_for_browser");
+  assert.equal(first.state, "starting");
   assert.equal(first.codeEntry, "browser");
   assert.equal(first.code, null);
   await request("/api/login/opencode/start", { method: "POST", headers: jsonHeaders, body: "{}" });
@@ -337,11 +339,11 @@ test("OpenCode subscription login uses the headless method and completes in the 
   assert.equal(JSON.parse((await postCode("WXYZ-12345")).text).ok, false);
   assert.deepEqual(submitted, []);
   signedIn = true;
-  child.stdout.write("Login successful\n"); child.emit("exit", 0);
+  child.stdout.write("Connected to OpenAI\n"); child.emit("exit", 0);
   status = JSON.parse((await request("/api/status")).text);
   assert.equal(status.providers.opencode.signedIn, true);
   assert.equal(status.providers.opencode.session.state, "done");
-  assert.ok(calls.some(([command, args]) => command === "opencode" && args.join(" ") === "auth list"));
+  assert.ok(calls.some(([command, args]) => command === "opencode" && args.join(" ") === "auth list --format json --standalone"));
   const page = await request("/");
   const context = createContext({ fetch: () => new Promise(() => {}), setInterval: () => 0 });
   new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]).runInContext(context);
@@ -361,11 +363,13 @@ test("OpenCode status distinguishes subscription credentials from API keys witho
   const request = await serve(t, { ...ingress, runCommand: async command => command === "opencode" ? response :
     { ok: true, stdout: command === "t3" ? '{}' : 'Not logged in', stderr: "" } });
   for (const [ok, code, stdout, signedIn, installed] of [
-    [true, 0, "│ ● OpenAI oauth\n", true, true],
-    [true, 0, "│ ● OpenAI api\nEnvironment\nOpenAI OPENAI_API_KEY\n", false, true],
-    [true, 0, "│ ● Other oauth\n", false, true],
-    [true, 0, "0 credentials\n", false, true],
-    [false, 1, "│ ● OpenAI oauth\n", false, true],
+    [true, 0, ocAccounts([ocOAuth]), true, true],
+    [true, 0, ocAccounts([{ ...ocOAuth, method: "key" }, { type: "env", name: "OPENAI_API_KEY" }]), false, true],
+    [true, 0, ocAccounts([ocOAuth], "other"), false, true],
+    [true, 0, "[]", false, true],
+    [true, 0, "malformed", false, true],
+    [true, 0, ocAccounts([{ ...ocOAuth, status: { status: "needs_auth" } }]), false, true],
+    [false, 1, ocAccounts([ocOAuth]), false, true],
     [false, 127, "ENOENT", false, false],
   ]) {
     response = { ok, code, stdout, stderr: "fictional-access-token fictional-refresh-token" };
@@ -389,9 +393,9 @@ test("OpenCode failures and logout never expose raw CLI output in responses or l
     spawnLogin: () => { queueMicrotask(() => child.stdout.write(opencodePrompt + "fictional-access-token\n")); return child; },
     runCommand: async (command, args) => {
       if (command !== "opencode" || args[1] === "list") {
-        return {ok: true, stdout: command === "t3" ? '{}' : '', stderr: ''};
+        return {ok: true, stdout: command === "t3" ? '{}' : command === "opencode" ? ocAccounts([{ ...ocOAuth, status: { status: "needs_auth" } }]) : '', stderr: ''};
       }
-      assert.deepEqual(args, ["auth", "logout", "openai"]);
+      assert.deepEqual(args, ["auth", "logout", "openai", "cred_test", "--standalone"]);
       return { ok: false, stdout: "fictional-access-token", stderr: "fictional-refresh-token" };
     },
   });
@@ -404,6 +408,29 @@ test("OpenCode failures and logout never expose raw CLI output in responses or l
   const logout = await request("/api/provider/opencode/logout", { method: "POST", headers: jsonHeaders, body: "{}" });
   assert.deepEqual(JSON.parse(logout.text), {ok: false});
   assert.doesNotMatch(failure.text + logout.text + logs.join("\n"), /fictional-access-token|fictional-refresh-token/);
+});
+
+test("OpenCode v2 logout removes only OpenAI OAuth accounts by ID", async t => {
+  const calls = [];
+  let output = JSON.stringify([
+    { id: "openai", connections: [ocOAuth, { ...ocOAuth, id: "cred_second" }, { ...ocOAuth, id: "cred_key", method: "key" }] },
+    { id: "anthropic", connections: [{ ...ocOAuth, id: "cred_other" }] },
+  ]);
+  const request = await serve(t, { ...ingress, runCommand: async (command, args) => {
+    calls.push([command, args]);
+    return { ok: true, stdout: args[1] === "list" ? output : "", stderr: "" };
+  } });
+  const logout = () => request("/api/provider/opencode/logout", { method: "POST", headers: jsonHeaders, body: "{}" });
+  assert.deepEqual(JSON.parse((await logout()).text), { ok: true });
+  assert.deepEqual(calls, [
+    ["opencode", ["auth", "list", "--format", "json", "--standalone"]],
+    ["opencode", ["auth", "logout", "openai", "cred_test", "--standalone"]],
+    ["opencode", ["auth", "logout", "openai", "cred_second", "--standalone"]],
+  ]);
+  calls.length = 0;
+  output = "invalid JSON";
+  assert.deepEqual(JSON.parse((await logout()).text), { ok: false });
+  assert.equal(calls.length, 1);
 });
 
 test("OpenCode routes retain ingress and cross-site protections", async t => {

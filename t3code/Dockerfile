@@ -38,6 +38,7 @@ RUN npm ci --loglevel=info --prefix /opt/t3code-runtime --omit=dev --no-fund --n
         ln -s "/opt/t3code-runtime/node_modules/.bin/${cli}" "/usr/local/bin/${cli}"; \
     done \
     && pi --version \
+    && opencode --version \
     && npm cache clean --force \
     && T3CODE_HOME=/opt/t3code-bundled /opt/t3code-runtime/node_modules/.bin/t3 --version \
     && /opt/t3code-bundled/runtime/versions/0.1.6/t3 --version
