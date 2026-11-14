@@ -495,7 +495,7 @@ function renderConnect(){
 
 function renderProviders(){
   const p = st.providers || {}; const el = document.getElementById("providers");
-  let h = '<h2>Providers on this server</h2><p class="muted">Provider logins are per machine. Sign in here if the T3 Code app does not offer it for this environment. Alternatively set an API key or token in the add-on configuration.</p>';
+  let h = '<h2>Providers on this server</h2><p class="muted">Provider logins are per machine. Sign in here if the T3 Code app does not offer it for this environment. Alternatively set an API key or token in the add-on configuration.</p><p class="muted">Signing in does not enable a provider in T3. In the HA environment, open T3 Settings &gt; Providers, enable the provider, and select Refresh provider status to populate the model picker. For local OpenCode, leave Server URL empty.</p><p class="muted">Pi is bundled with this add-on. Enable Pi in T3 Settings &gt; Providers. For subscription sign-in, run pi in the add-on terminal and use /login, then refresh provider status. Pi sign-in is separate from Claude Code and Codex.</p>';
   for (const name of ["claude","codex","opencode"]) {
     const v = p[name]; if (!v) continue;
     const label = name === "claude" ? "Claude Code" : name === "opencode" ? "OpenCode (ChatGPT subscription)" : "Codex";

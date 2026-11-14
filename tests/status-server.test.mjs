@@ -57,6 +57,10 @@ test("ingress can render the page and manage a login without exposing diagnostic
   } });
   const page = await request("/api/hassio_ingress/test/", { headers: { "x-ingress-path": "/api/hassio_ingress/test" } });
   assert.equal(page.status, 200);
+  assert.match(page.text, /Signing in does not enable a provider in T3/);
+  assert.match(page.text, /Refresh provider status to populate the model picker/);
+  assert.match(page.text, /For local OpenCode, leave Server URL empty/);
+  assert.match(page.text, /Pi sign-in is separate from Claude Code and Codex/);
   assert.match(page.text, /const BASE = "\/api\/hassio_ingress\/test"/);
   new Script(page.text.match(/<script>([\s\S]*?)<\/script>/)[1]);
   assert.equal((await request("/api/logout", { method: "POST", headers: jsonHeaders, body: "{}" })).status, 200);
