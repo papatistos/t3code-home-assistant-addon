@@ -1,3 +1,20 @@
+# OpenCode v2 replacement for 0.1.18
+
+- All 83 Node tests passed. The v1 package and platform packages are absent from
+  the lockfile; v2 Linux x64, x64-baseline, and arm64 packages are pinned at 2.3.0.
+- A clean npm installation plus the required `@opencode/cli` postinstall ran
+  the actual v2 binary on macOS. Docker's existing `npm ci` enables postinstall.
+- The real-CLI smoke test used disposable HOME/XDG directories and fictional
+  credentials. It verified legacy OAuth import, token-free JSON account metadata,
+  normalization of the existing HA MCP configuration, and account-specific logout
+  while retaining another provider's credential.
+- Panel tests cover v2 login output, failed/malformed status, reauthentication,
+  multiple-account logout, preservation of API keys, and ingress protection.
+- Existing non-OpenCode locked package versions remained unchanged.
+- Linux container execution and live HA inference remain unverified. No live
+  provider data was migrated, no HA restart occurred, and nothing was published.
+  A backup of HA configuration and add-on data is required before installation.
+
 # Updater fix and live provider diagnosis for 0.1.17
 
 - Integrated the previously unmerged version parser fix from `a1e0d6d`.

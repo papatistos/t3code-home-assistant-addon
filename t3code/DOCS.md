@@ -106,35 +106,40 @@ panel open; it refreshes when OpenCode finishes. Nothing needs to be pasted
 back into the panel. Acceptance of ChatGPT Edu accounts has not been tested with
 this add-on.
 
-OpenCode signs in separately from Codex. Its bundled 1.19.5 release supports
-`opencode auth login --provider openai --method "ChatGPT Pro/Plus (headless)"`.
+The add-on bundles OpenCode 2.3.0 from `@opencode/cli`, replacing the v1
+`opencode-ai` package. OpenCode signs in separately from Codex. The panel uses
+`opencode auth login openai --method chatgpt-headless --standalone`.
 This uses OpenAI's device sign-in, with no browser or callback port on the server.
 OpenCode does not automatically read the Codex CLI's existing login.
 
-OpenCode saves its OpenAI credential in
-`/data/home/.local/share/opencode/auth.json`, or under
-`$XDG_DATA_HOME/opencode/auth.json` when that variable is set. OpenCode writes
-this file with owner-only access. Its settings live in
+OpenCode v2 imports legacy `auth.json` credentials into its database under
+`/data/home/.local/share/opencode`, or `$XDG_DATA_HOME/opencode` when set.
+Back up both HA configuration and add-on data before upgrading. V2 migrates
+OpenCode's database on first use; do not run v1 and v2 against the same data.
+Downgrading the package alone does not roll back the database. Restore a
+pre-upgrade backup if a rollback is required. The add-on does not delete the
+legacy credential file or provider history. OpenCode settings still live in
 `/data/home/.config/opencode/opencode.json`, or under `$XDG_CONFIG_HOME/opencode`.
 The panel and local T3 provider inherit the same home and environment.
 Keep **Server URL** empty in T3's OpenCode settings to use this local login;
 an external OpenCode server has its own credentials. Custom HOME or XDG overrides
 in T3's provider settings must also match the panel to share this login.
 
-The panel checks `opencode auth list` for an `OpenAI oauth` entry, without
-displaying credentials. "Signed in" means a subscription credential is saved;
+The panel checks `opencode auth list --format json --standalone` for OpenAI
+OAuth account metadata without displaying account IDs, labels, or credentials. "Signed in" means a subscription credential is saved;
 it does not prove the credential is still accepted or your plan permits a model.
 An API key does not count as a ChatGPT subscription login. Signing out removes
-only OpenCode's OpenAI credential and leaves Codex signed in.
+only OpenCode's OpenAI OAuth accounts by credential ID. API keys, other
+integrations, and Codex credentials remain untouched.
 
 After signing in, enable OpenCode in **Settings > Providers** in T3 and select
 **Refresh provider status**. On mobile, use **Refresh models** in thread settings.
 If settings remain cached, leave the local helper idle for 30 seconds and refresh
 again. Choose an available OpenAI model to use the subscription.
 
-The implementation follows the pinned [OpenCode headless sign-in source](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/plugin/openai/codex.ts),
-[login and status commands](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/cli/cmd/providers.ts),
-and [credential storage](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/auth/index.ts).
+The implementation follows the pinned [OpenCode headless sign-in source](https://github.com/anomalyco/opencode/blob/v2.3.0/packages/core/src/plugin/provider/openai.ts),
+[authentication commands](https://github.com/anomalyco/opencode/tree/v2.3.0/packages/cli/src/commands/handlers/auth),
+and [legacy credential import](https://github.com/anomalyco/opencode/blob/v2.3.0/packages/core/src/database/migration/20260805200742_import_legacy_credentials.ts).
 T3's [OpenCode setup instructions](https://github.com/pingdotgg/t3code/blob/v0.1.6/docs/user/providers-opencode.md)
 describe local servers and credential refresh.
 

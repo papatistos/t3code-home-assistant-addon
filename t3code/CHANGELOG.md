@@ -1,3 +1,10 @@
+## 0.1.18
+
+- Replace OpenCode v1 (`opencode-ai`) with OpenCode 2.3.0 (`@opencode/cli`).
+- Adapt the panel to v2 device login, JSON account metadata, and account-specific OAuth logout while preserving API keys and other integrations.
+- Add real-CLI smoke checks for legacy credential import, MCP configuration normalization, and isolated account logout.
+- Back up HA configuration and add-on data before installing. V2 migrates the OpenCode database; do not run v1 against migrated data.
+
 ## 0.1.17
 
 - Parse the actual `t3 v…` CLI version output so automatic and manual T3 updates no longer reject valid versions.
