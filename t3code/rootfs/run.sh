@@ -53,7 +53,7 @@ export T3CODE_LAN_PORT="${LAN_PORT}"
 node /opt/t3code/runtime-manager.mjs prepare "${AUTO_UPDATE_T3}" || exit 1
 
 bashio::log.info "T3 Code add-on starting (t3 $(timeout 15s t3 --version 2>/dev/null || echo unknown), mode: ${REMOTE_MODE})"
-for cli in claude codex opencode cloudflared ha ha-mcp; do
+for cli in claude codex opencode pi cloudflared ha ha-mcp; do
     if command -v "${cli}" >/dev/null 2>&1; then
         bashio::log.info "  found ${cli}: $(command -v "${cli}")"
     else

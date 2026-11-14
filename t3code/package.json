@@ -1,8 +1,9 @@
 {
   "name": "t3code-home-assistant-runtime",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.2",
     "@anthropic-ai/claude-code": "2.1.316",
     "@openai/codex": "0.166.0",
     "opencode-ai": "1.19.5",

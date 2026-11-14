@@ -34,9 +34,10 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # launcher otherwise downloads again after startup switches to persistent /data.
 COPY package.json package-lock.json /opt/t3code-runtime/
 RUN npm ci --loglevel=info --prefix /opt/t3code-runtime --omit=dev --no-fund --no-audit \
-    && for cli in claude codex opencode; do \
+    && for cli in claude codex opencode pi; do \
         ln -s "/opt/t3code-runtime/node_modules/.bin/${cli}" "/usr/local/bin/${cli}"; \
     done \
+    && pi --version \
     && npm cache clean --force \
     && T3CODE_HOME=/opt/t3code-bundled /opt/t3code-runtime/node_modules/.bin/t3 --version \
     && /opt/t3code-bundled/runtime/versions/0.1.6/t3 --version
