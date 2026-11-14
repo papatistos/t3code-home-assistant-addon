@@ -1,3 +1,21 @@
+# Updater fix and live provider diagnosis for 0.1.17
+
+- Integrated the previously unmerged version parser fix from `a1e0d6d`.
+  The parser covers current-version comparisons, downloaded executable validation,
+  and the startup trial's previous-version metadata.
+- All 81 Node tests passed, including update activation and rollback with test
+  executables that print the actual `t3 v…` format.
+- Live HA inspection confirmed add-on 0.1.16, T3 0.1.6, Pi 1.5.2,
+  OpenCode 1.19.5, and Node 22.23.4. Provider HOME successfully resolves to
+  `/config/.t3code/provider-home`.
+- Live OpenCode has an OpenAI OAuth credential and lists 26 OpenAI models.
+  Persisted T3 settings do not enable OpenCode or Pi; matching-version T3
+  defaults disable both providers.
+- Live Pi reports `credentials_not_configured`, and its model list is empty.
+  Authentication, T3 enablement/refresh, and actual model calls remain necessary.
+- Docker is unavailable locally. The 0.1.17 Linux image, live update activation,
+  and authenticated Pi/OpenCode model turns have not yet been verified.
+
 # Pi provider addition
 
 The add-on now bundles Pi 1.5.2 and exposes `/usr/local/bin/pi`.

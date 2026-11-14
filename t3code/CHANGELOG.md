@@ -1,3 +1,9 @@
+## 0.1.17
+
+- Parse the actual `t3 v…` CLI version output so automatic and manual T3 updates no longer reject valid versions.
+- Test updates with realistic version output instead of bare version test doubles.
+- Explain in the sidebar panel that signing in does not enable a provider in T3, and describe how to enable and refresh OpenCode and Pi.
+
 ## 0.1.16
 
 - Bundle Pi 1.5.2 and expose its CLI on PATH so T3 can discover Pi as a provider.
