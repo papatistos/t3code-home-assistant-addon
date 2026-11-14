@@ -5,6 +5,9 @@ set +o errexit +o nounset
 set -o pipefail
 umask 077
 
+# Complete storage migration before any T3 or provider command can write state.
+python3 /opt/t3code/provider-storage.py || exit 1
+
 export HOME=/data/home
 export T3CODE_HOME=/data/t3code
 export T3CODE_CLOUDFLARED_PATH=/usr/local/bin/cloudflared
@@ -77,6 +80,9 @@ fi
 # untracked Home Assistant data (databases, caches, HACS components) makes that
 # time out, so write exclude patterns to the repo-local .git/info/exclude.
 /opt/t3code/git-excludes.sh || bashio::log.warning "git exclude setup had errors (continuing)"
+# Recheck exclusions if this startup initialized Git or rewrote its rules.
+# The migration is idempotent; this must pass before project registration.
+python3 /opt/t3code/provider-storage.py || exit 1
 
 # ---------------------------------------------------------------------------
 # Projects

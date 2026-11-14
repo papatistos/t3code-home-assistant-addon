@@ -31,6 +31,9 @@ apply_excludes() {
 
     local patterns
     patterns=$(collect_patterns)
+    # Provider credentials and sessions must never enter T3 checkpoints, even
+    # when the user disables large-directory exclusions or clears the list.
+    patterns="${patterns}"$'\n'"/.t3code/"
 
     # Auto-exclude large untracked top-level directories. T3 Code hashes every
     # untracked file on each turn and aborts after 30s, so big data dirs

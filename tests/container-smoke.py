@@ -107,6 +107,11 @@ with tempfile.TemporaryDirectory(prefix="t3ha-smoke-") as temporary:
                "-e", "SUPERVISOR_TOKEN=local-test-token-not-a-credential",
                "-v", f"{data}:/data", "-v", f"{config}:/config", image, capture_output=True)
         docker("exec", supervisor, "python3", "-c", probe, "allowed")
+        docker("exec", name, "python3", "-c",
+               "from pathlib import Path; "
+               "assert Path('/data/home').is_symlink(); "
+               "assert Path('/data/home').resolve() == Path('/config/.t3code/provider-home'); "
+               "assert Path('/data/home/.codex/config.toml').is_file()")
         docker("run", "--rm", "--network", network, "--ip", "172.30.32.3",
                "--entrypoint", "python3", image, "-c", probe, "denied")
         docker("exec", "-i", name, "python3", "-", input=(repo / "tests/mcp-smoke.py").read_text())
