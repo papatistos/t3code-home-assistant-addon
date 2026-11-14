@@ -1,3 +1,19 @@
+# Provider storage change, 14 November 2026
+
+The change starts from local main commit `46eae65`. No live Home Assistant data
+was inspected or modified. The T3 thread tools were unavailable in this session.
+
+- The complete suite passed 78 tests on Node 26.13.0 and Python 3.15.1 on macOS,
+  including all 14 provider storage migration tests.
+- `bash -n` and `git diff --check` passed. ShellCheck and Hadolint were not installed.
+- The migration preserves the original provider home and keeps `/data/home` as a
+  symlink. Migration tests use disposable data and fictional credentials.
+- Docker could not connect to the configured OrbStack socket. Linux container
+  builds, the expanded container smoke test, and live provider session resumption
+  remain unverified. No publication or deployment was performed.
+
+The earlier validation record below concerns the preceding updater work.
+
 # Validation of persistent T3 updates
 
 The development checkout starts from add-on commit

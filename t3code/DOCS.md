@@ -33,7 +33,48 @@ You have three options:
    restart. These are passed to the CLIs as environment variables.
 3. **T3 Code app.** Settings → Providers, if the app offers sign-in for this environment.
 
-Credentials are stored in the add-on's `/data` directory and survive restarts and updates.
+Provider credentials and sessions are stored in the shared Home Assistant config
+folder and survive restarts and updates. See [Provider storage](#provider-storage).
+
+### Provider storage
+
+The add-on stores provider HOME in `/config/.t3code/provider-home`. File tools
+that mount the Home Assistant configuration at `/homeassistant` show the same
+files at `/homeassistant/.t3code/provider-home`. Enable hidden files to see
+`.t3code`. Codex uses `.codex/` inside this directory; Claude Code uses
+`.claude/` and `.claude.json`; OpenCode uses `.config/` and `.local/share/`.
+Global instructions, settings, credentials, and provider session history move
+together. Project-level `AGENTS.md` and `CLAUDE.md` remain in their projects.
+Custom provider HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, or XDG overrides are not moved.
+
+On the first start after upgrading, before any T3 or provider commands run, the
+add-on copies the existing `/data/home`, flushes the copy to disk, publishes it
+in the shared folder, and links `/data/home` to that folder. Existing absolute
+paths therefore continue to work. The original directory is retained at
+`/data/home.before-shared-storage`; it is a one-time migration backup and does
+not receive subsequent session changes. Do not restore it over newer sessions.
+The add-on retains a migration identity in `/data/provider-home-migration.json`.
+Keep that file with the shared folder when restoring a backup.
+
+Migration needs enough free space for a second copy of provider HOME. Conflicting
+folders, unexpected symlinks, copy failures, or missing migrated data stop startup
+instead of overwriting files or silently restoring stale sessions. Interrupted
+activation resumes on the next start. Interrupted copies leave hidden
+`.provider-home-copy-*` directories under `.t3code`; a retry makes a fresh copy.
+After confirming migration succeeded, these incomplete copies and the original
+backup can be removed manually. Relative symlinks leaving the original HOME must
+be resolved manually before migration because moving them changes their meaning.
+
+The shared folder and provider home are created with private permissions. Other
+privileged add-ons with config access may still read the credentials. The add-on
+excludes `/.t3code/` from Git checkpoints even if optional exclusions are disabled,
+and refuses migration if files under `.t3code` are already tracked.
+
+Backups must now include **both Home Assistant configuration and this add-on**.
+An add-on-only backup does not contain the current provider home through the
+symlink. T3's application database remains at `/data/t3code`, and T3 updater
+snapshots still cover only that database. An add-on reinstall must not blindly
+adopt an existing shared folder without the matching migration identity.
 
 ### OpenCode with a ChatGPT subscription
 
@@ -196,8 +237,8 @@ Persistent files are separate from the provider CLIs:
 | `/run/t3-executable` | Container-local selection used by `/usr/local/bin/t3` for all invocations. Recreated on startup. |
 | `/opt/t3code-bundled/runtime/versions/0.1.6/t3` | Pinned initial fallback, downloaded and validated while building the image. |
 
-`/data/home`, provider credentials and installations, and `/data/t3code` keep their
-existing locations. Container replacement and add-on updates retain `/data`, so
+`/data/home` links to the shared provider home described above. `/data/t3code`
+remains private add-on storage. Container replacement and add-on updates retain `/data`, so
 the selected T3 version persists. The image bundle is used when no persistent
 selection exists. Missing or invalid established state causes startup to refuse
 rather than silently opening migrated data with an older bundle.

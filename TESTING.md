@@ -103,3 +103,18 @@ credentials or Home Assistant mounts for that check.
 
 Current results and untested checks are recorded in `VALIDATION.md`. Historical
 0.1.13 results in INSTALL-LOCAL.md do not establish validation of this change.
+
+## Provider storage migration
+
+`node --test tests/provider-storage.test.mjs` invokes the real Python migration
+helper against disposable config and data folders. The tests cover existing and
+fresh installations, preserved instructions and credentials, file modes, stable
+paths, repeated startup, interrupted activation, failed copy and retry, conflicting
+folders, missing shared storage, migration identity mismatches, external relative
+symlinks, and Git exclusions (including tracked files and overriding rules).
+The container smoke test also checks the HOME symlink and Codex configuration.
+
+Before deploying 0.1.15, back up both HA configuration and add-on data. After a
+container rebuild, verify `/data/home` resolves to `/config/.t3code/provider-home`,
+provider sign-in status remains valid, and an existing session can be resumed.
+The shared folder appears under `/homeassistant` in file tools using that mount.

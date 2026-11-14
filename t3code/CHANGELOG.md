@@ -1,3 +1,9 @@
+## 0.1.15
+
+- Move provider HOME to the shared Home Assistant config folder at `.t3code/provider-home`, preserving `/data/home` through a symlink and retaining the original data as a migration backup.
+- Resume interrupted activation and refuse conflicting destinations, missing migrated data, or unsafe relative symlinks without starting providers.
+- Always exclude shared provider state from Git checkpoints. Backups now need both Home Assistant configuration and add-on data.
+
 ## 0.1.14
 
 - Add OpenCode ChatGPT subscription sign-in to the panel using its headless device flow, with separate credential status, sign-out, and security regression tests.

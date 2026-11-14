@@ -45,6 +45,15 @@ The original Home Assistant access is preserved. Agents can write to `/config`,
 `/addons`, and `/share`, read `/ssl`, and use the Home Assistant Core administrator
 API, Supervisor manager API, and `ha` CLI to configure Home Assistant.
 
+## Provider storage
+
+Provider settings, global instructions, credentials, and sessions live under
+`/homeassistant/.t3code/provider-home` in HA file tools (the add-on sees this as
+`/config/.t3code/provider-home`). The first start migrates the old provider home
+and retains its original contents as a backup. Existing `/data/home` paths keep
+working through a symlink. Back up both HA configuration and the add-on.
+See [migration and recovery details](t3code/DOCS.md#provider-storage).
+
 ## T3 updates
 
 T3 updates itself independently of add-on releases. You do not need a new add-on
