@@ -17,6 +17,28 @@ itself serves a small status page for remote access and provider sign-ins.
 The same instructions are printed in the add-on **Log** tab if you prefer to follow them
 from there.
 
+## Pi
+
+The image includes Pi 1.5.2 at `/usr/local/bin/pi`. In the HA environment's
+T3 **Settings > Providers**, enable Pi and refresh provider status. Set the
+binary path to `/usr/local/bin/pi` if discovery needs an explicit path.
+
+For subscription authentication, open a terminal in the T3 add-on, run `pi`,
+and use `/login`. Open the authorization URL on your computer and paste the
+redirect URL or authorization code into Pi if prompted. Alternatively, configure
+your model provider's API-key environment variable in Pi's T3 provider settings
+and mark the value as sensitive. The sidebar sign-in panel does not manage Pi
+logins, and existing Claude Code or Codex logins are not copied into Pi.
+
+Pi stores settings, credentials, and sessions under
+`/homeassistant/.t3code/provider-home/.pi/agent` by default. A custom
+`PI_CODING_AGENT_DIR` overrides this location. The add-on does not install
+third-party Pi extensions or configure Pi's Home Assistant MCP integration;
+Pi can use the bundled `ha` CLI through its shell tool.
+
+Rebuilding/updating the add-on installs Pi; updating only T3 does not install
+provider CLIs. See the upstream [Pi setup instructions](https://github.com/pingdotgg/t3code/blob/v0.1.6/docs/user/providers-pi.md).
+
 ## Provider sign-in (Claude Code, Codex, OpenCode)
 
 Provider logins are per machine, so signing in on your laptop does not sign in the add-on.
@@ -220,7 +242,7 @@ trial. It can use an already downloaded update offline.
 The updater downloads only T3's Linux ARM64 or x64 release archive and verifies
 its SHA-256 against the release's `SHA256SUMS`. The archive includes its own Node
 runtime and native dependencies. It does not change `/usr/local/bin/node`, npm's
-provider installations, Claude Code, Codex, OpenCode, cloudflared, or system
+provider installations, Claude Code, Codex, OpenCode, Pi, cloudflared, or system
 packages. A future T3 release can include a newer embedded Node runtime. The
 container's pinned Node 22 still runs the add-on management code. An incompatible
 executable, system library requirement, or launcher protocol fails validation and

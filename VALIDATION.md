@@ -1,3 +1,16 @@
+# Pi provider addition
+
+The add-on now bundles Pi 1.5.2 and exposes `/usr/local/bin/pi`.
+
+- All 80 Node tests passed locally.
+- A clean `npm ci --ignore-scripts` installation reported Pi 1.5.2.
+- Pi answered an RPC `get_state` request with an isolated HOME and no credentials.
+- Existing locked package versions remained unchanged when Pi was added.
+- Shell syntax and whitespace checks passed.
+- Docker remains unavailable locally. The Linux image build, container smoke test,
+  live T3 discovery, authentication, and model turns still need deployment validation.
+- No GitHub publication or HA restart was performed.
+
 # Provider storage change, 14 November 2026
 
 The change starts from local main commit `46eae65`. No live Home Assistant data

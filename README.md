@@ -3,7 +3,7 @@
 [![Build add-on](https://github.com/papatistos/t3code-home-assistant-addon/actions/workflows/builder.yaml/badge.svg)](https://github.com/papatistos/t3code-home-assistant-addon/actions/workflows/builder.yaml)
 
 Run a headless [T3 Code](https://github.com/pingdotgg/t3code) server on your Home Assistant
-box and control AI coding agents (Claude Code, Codex, OpenCode) from the T3 Code app on your
+box and control AI coding agents (Claude Code, Codex, OpenCode, Pi) from the T3 Code app on your
 phone or desktop through **T3 Connect**.
 
 The Home Assistant sidebar panel manages T3 Connect and provider sign-ins.
@@ -70,7 +70,7 @@ version to get a new T3 release.
 - Set `auto_update_t3: false` to stop the automatic checks. The add-on then keeps
   the current version, and the **Update T3 now** button still works.
 - The add-on keeps the bundled T3 0.1.6 as a fallback. Updates never change
-  Claude Code, Codex, OpenCode, or Node.js.
+  Claude Code, Codex, OpenCode, Pi, or Node.js.
 
 After you have used a new T3 version for a while, it cannot be undone on its own.
 Take a Home Assistant backup of this add-on before updates you care about. See

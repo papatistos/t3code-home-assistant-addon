@@ -1,3 +1,8 @@
+## 0.1.16
+
+- Bundle Pi 1.5.2 and expose its CLI on PATH so T3 can discover Pi as a provider.
+- Document Pi authentication and persistent storage, and check the bundled CLI in the container smoke test.
+
 ## 0.1.15
 
 - Move provider HOME to the shared Home Assistant config folder at `.t3code/provider-home`, preserving `/data/home` through a symlink and retaining the original data as a migration backup.
